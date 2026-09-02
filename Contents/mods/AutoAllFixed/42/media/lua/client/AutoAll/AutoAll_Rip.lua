@@ -155,6 +155,43 @@ function Rip.hasRipTag(item)
     return false
 end
 
+-- How far up the container chain to look for a body. A garment in a bag in
+-- a bag on a corpse is two steps; the bound is only here so a malformed
+-- chain cannot spin.
+local MAX_CONTAINER_DEPTH = 8
+
+--- True when anything up the chain that owns this container is a corpse.
+---
+--- ItemContainer.getParent() answers for the immediate owner only, and that
+--- is the hole this closes. A garment inside a backpack the corpse is
+--- wearing sits in the BAG's container, whose parent is not the body - so
+--- the garment never read as being on a corpse, protected() judged it by the
+--- player's own rules, and the destination became the corpse's own bag with
+--- every ripped sheet going straight back into it.
+---
+--- So walk instead: this container -> the item that container is
+--- (getContainingItem) -> the container that item sits in -> its parent, and
+--- round again.
+local function ownedByDeadBody(container)
+    local depth = 0
+    while container and depth < MAX_CONTAINER_DEPTH do
+        depth = depth + 1
+
+        local gotParent, parent = pcall(function() return container:getParent() end)
+        if gotParent and parent and instanceof(parent, "IsoDeadBody") then return true end
+
+        -- Not a body. If this container is a bag, step out into whatever the
+        -- bag itself is sitting in and ask the same question again.
+        local gotBag, bag = pcall(function() return container:getContainingItem() end)
+        if not gotBag or not bag then return false end
+
+        local gotOuter, outer = pcall(function() return bag:getContainer() end)
+        if not gotOuter then return false end
+        container = outer
+    end
+    return false
+end
+
 --- True for clothing still on a dead body.
 ---
 --- This is the "it says the clothes are worn but they are lying in a
@@ -175,14 +212,14 @@ end
 --- RipDenimClothing both carry the IsNotWorn input flag - so it is not
 --- enough to stop protecting it. It has to come off the body first, which
 --- is what the looting phase does.
+--- Asked of the whole container chain, not just the immediate parent: see
+--- ownedByDeadBody for the bag-on-a-corpse case that used to slip through.
 function Rip.onCorpse(item)
     if not item then return false end
-    local container = item:getContainer()
-    if not container then return false end
 
-    local ok, parent = pcall(function() return container:getParent() end)
-    if not ok or not parent then return false end
-    return instanceof(parent, "IsoDeadBody") == true
+    local ok, container = pcall(function() return item:getContainer() end)
+    if not ok or not container then return false end
+    return ownedByDeadBody(container)
 end
 
 -- Answers from CraftRecipeManager, keyed by item type, for the length of
@@ -1108,6 +1145,20 @@ local function think(task)
     AA.stop(player, getText("UI_AA_rip_done", task.succeeded), false)
 end
 
+--- The container an item came from, when that is somewhere worth sending the
+--- results back to. Never a corpse, and never a bag a corpse is wearing:
+--- putting fresh rags into the body they came off is losing them, not
+--- sending them home. buildRipMenu already makes this check on the item the
+--- player clicked - the fallback below is the one place that took the raw
+--- container without asking.
+local function sourceContainer(item)
+    if not item or Rip.onCorpse(item) then return nil end
+
+    local ok, container = pcall(function() return item:getContainer() end)
+    if not ok then return nil end
+    return container
+end
+
 function Rip.start(player, fullType, label, destination)
     if not player then return end
 
@@ -1165,7 +1216,7 @@ function Rip.start(player, fullType, label, destination)
         -- Where the strips go at the end. Falls back to the container the
         -- first of the batch came from when the option was used on
         -- something already in the inventory.
-        destination  = destination or (items[1] and items[1]:getContainer()),
+        destination  = destination or sourceContainer(items[1]),
         before       = nil,
         -- Snapshot taken around each craft round, and the set of items those
         -- rounds actually made. Only these go to the destination.
