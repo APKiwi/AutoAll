@@ -441,6 +441,41 @@ end
 
 Tailor.holedParts = holedParts
 
+--- True for a garment still on a dead body.
+---
+--- Same shape and same reason as Dismantle.onCorpse: isEquipped is a
+--- question asked of whatever owns the container, so a zombie's shirt
+--- answers true, and getContainers puts every open corpse into the sweep.
+function Tailor.onCorpse(item)
+    if not item then return false end
+    local container = item:getContainer()
+    if not container then return false end
+
+    local ok, parent = pcall(function() return container:getParent() end)
+    if not ok or not parent then return false end
+    return instanceof(parent, "IsoDeadBody") == true
+end
+
+--- Can the job actually get this garment into the character's hands?
+---
+--- A garment on a corpse or on somebody else cannot be pulled: the fetch
+--- queues a transfer that never happens, the twenty sewing rounds burn on
+--- it and the job ends "repaired 3, 11 left". So it is left out of the
+--- work and out of the hole count. The player's own worn clothes are fine
+--- - they are already in the main inventory.
+local function fetchable(player, item)
+    if Tailor.onCorpse(item) then return false end
+
+    local container = item:getContainer()
+    if not container then return true end
+
+    local ok, parent = pcall(function() return container:getParent() end)
+    if not ok or not parent then return true end
+
+    if instanceof(parent, "IsoGameCharacter") and parent ~= player then return false end
+    return true
+end
+
 --- The fabric to sew this particular hole with, or nil.
 ---
 --- Only one that closes the hole completely - leather wants leather - in
@@ -485,12 +520,24 @@ end
 --- @return table garments, number holes
 function Tailor.collectHoled(player, single)
     if single then
+        if not fetchable(player, single) then return {}, 0 end
         local holes = #holedParts(single)
         if holes == 0 then return {}, 0 end
         return { single }, holes
     end
 
+    -- Judge each garment exactly once. getAllEvalRecurse on the main
+    -- inventory already walks every worn bag, and getContainers hands those
+    -- same bags back as entries of its own, so a shirt in a backpack was
+    -- collected twice: the start message doubled the holes, queueRepairs
+    -- queued each hole twice and the finish message doubled with them. Same
+    -- dedupe Dismantle.collect uses.
+    local seen = {}
     local matches = function(item)
+        if seen[item] then return false end
+        seen[item] = true
+
+        if not fetchable(player, item) then return false end
         return #holedParts(item) > 0
     end
 
@@ -513,14 +560,15 @@ function Tailor.collectHoled(player, single)
             local found = container:getAllEvalRecurse(matches, ArrayList.new())
             if found then
                 for j = 0, found:size() - 1 do
+                    -- No guard here any more: getContainers handing back the
+                    -- same container twice, and recursing into a worn bag,
+                    -- are both handled by the seen set in the predicate. The
+                    -- guard that used to stand here (container ~= inventory)
+                    -- is true for a bag, which is exactly what let the
+                    -- double count through.
                     local item = found:get(j)
-                    -- getContainers can hand back the same container twice,
-                    -- and recursing into a worn bag reaches items already
-                    -- counted above.
-                    if item:getContainer() ~= inventory then
-                        table.insert(garments, item)
-                        holes = holes + #holedParts(item)
-                    end
+                    table.insert(garments, item)
+                    holes = holes + #holedParts(item)
                 end
             end
         end
