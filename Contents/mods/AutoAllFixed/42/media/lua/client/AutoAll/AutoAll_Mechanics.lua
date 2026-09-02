@@ -819,14 +819,16 @@ local PRIORITY = { drop = 1, install = 2, uninstall = 3, clear = 4 }
 --- Everything that could be done right now, in the order it should be
 --- tried.
 ---
---- Three keys, in this order:
+--- Four keys, in this order:
 ---
----   1. the part that just failed, if any - the character stays on it
+---   1. dropping, ahead of everything including the retry pin - weight is
+---      the one thing this job has no other defence against;
+---   2. the part that just failed, if any - the character stays on it
 ---      until it gives rather than wandering off round the car;
----   2. fewest failures, so once a part has had its RETRY_LIMIT turns the
+---   3. fewest failures, so once a part has had its RETRY_LIMIT turns the
 ---      rest of the car goes ahead of it - it is never struck off, only
 ---      overtaken, and comes back round when the others catch up;
----   3. PRIORITY, then working order.
+---   4. PRIORITY, then working order.
 ---
 --- Install beating uninstall at (3) is what stops the character ending up
 --- carrying the whole car: the part that just came off has no failures
@@ -962,6 +964,17 @@ local function candidates(task)
     local retry = task.retry
 
     table.sort(out, function(a, b)
+        -- Putting something down comes before going back to the part that
+        -- just lost its roll. It used to come after, so a character already
+        -- over its carry limit rode a spent door round for up to
+        -- RETRY_LIMIT more attempts - and this job sets ignoreDamage, so
+        -- shedding weight is the only thing standing between the muscle
+        -- strain and a dead character. Still bounded by the strike count,
+        -- so a drop the game will not take cannot own the job forever.
+        local da = (a.action == "drop" and a.strikes < RETRY_LIMIT) and 0 or 1
+        local db = (b.action == "drop" and b.strikes < RETRY_LIMIT) and 0 or 1
+        if da ~= db then return da < db end
+
         local ra = (retry and a.part:getId() == retry) and 0 or 1
         local rb = (retry and b.part:getId() == retry) and 0 or 1
         if ra ~= rb then return ra < rb end
