@@ -254,11 +254,12 @@ local function isAllowed(task, recipe, item)
 
     if food:isFrozen() and not recipe:isAllowFrozenItem() then return false end
 
-    -- A skilled cook knows what to do with the sad end of the pantry.
+    -- The tickbox wins outright, whatever the skill slider says. Cooking
+    -- skill does not make rotten, burnt or tainted food safe to eat, and
+    -- the option's own tooltip promises "never". The slider can only let
+    -- these in once the player has unticked the option as well.
     -- Poison is never on the table, however good you are.
-    local skilled = task.badIngredients
-
-    if AA.opt("cookSkipRotten") and not skilled then
+    if AA.opt("cookSkipRotten") then
         if food:isRotten() or food:isBurnt() or food:isTainted() then return false end
     end
 

@@ -173,7 +173,7 @@
     "UI_AA_dismantle_done": "Dismantling finished: %1 taken apart.",
     "UI_AA_dismantle_stop": "Stop Dismantling",
     "UI_AA_opt_cookBadFromLevel": "Use bad ingredients from Cooking level",
-    "UI_AA_opt_cookBadFromLevel_tt": "From this Cooking level the picker stops avoiding rotten and depressing ingredients. 0 never allows them. Poison is always refused.",
+    "UI_AA_opt_cookBadFromLevel_tt": "From this Cooking level the picker stops avoiding depressing ingredients. 0 never allows them. Rotten, burnt and tainted food also needs \"Avoid rotten and burnt food\" unticked, and poison is always refused.",
     "UI_AA_rip_option": "Auto Rip: %1",
     "UI_AA_rip_option_all": "Auto Rip: everything within reach",
     "UI_AA_rip_label_all": "clothing",
