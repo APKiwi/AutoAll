@@ -857,7 +857,7 @@ end
 -- each one of which worked, each one followed by minutes of ordinary
 -- progress - ended it with "an action would not finish". Auto Clean was
 -- worst at maxStalls = 2. Dismantle and Rip already zeroed it from their
--- own confirmPendingCrafts, which is why only they were immune; doing it
+-- own confirmPendingCrafts, which is why only they were immune. Doing it
 -- here means every module gets it and it cannot drift apart again.
 --
 -- What counts as progress is a new action reaching the head of the queue
