@@ -651,6 +651,12 @@ local function confirmPendingCrafts(task)
         if not item:getContainer() then succeeded = succeeded + 1 end
     end
 
+    -- The same count decides whether the next batch may be bigger. Without
+    -- this call AA.batchSize never leaves one, so on a client every round
+    -- was a single craft for the whole job however well the server kept up -
+    -- which is a wardrobe one garment at a time. Dismantle already does it.
+    AA.batchFeedback(task, #task.pendingItems, succeeded)
+
     task.pendingItems = {}
     task.succeeded = task.succeeded + succeeded
 
