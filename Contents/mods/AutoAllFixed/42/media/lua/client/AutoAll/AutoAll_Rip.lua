@@ -920,12 +920,23 @@ local function planRound(task)
     end)
     if not gotCarry or type(carry) ~= "number" then carry = 0 end
 
+    -- Which of the two dead ends this round hits, if it hits one. Mirrors
+    -- Auto Dismantle's sawRecipe: groupByRecipe only ever returns groups the
+    -- engine gave a recipe for, so a group whose logic will not run is the
+    -- missing tool, and no workable group at all is the pile. Without it
+    -- every dead end reported the generic "blocked", and UI_AA_rip_notool -
+    -- which has no other assignment anywhere in this file - was never once
+    -- shown to a player who genuinely had no scissors.
+    local sawRecipe = false
+
     local full = false
     for _, group in ipairs(groupByRecipe(player, items, containers)) do
         if full then break end
 
         local logic = buildLogic(player, group.items[1], group.recipe)
-        if logic:canPerformCurrentRecipe() then
+        if not logic:canPerformCurrentRecipe() then
+            sawRecipe = true
+        else
             local possible = logic:getPossibleCraftCount(true) or 0
             local doable = math.min(possible, #group.items)
             if room then doable = math.min(doable, room - #batch) end
@@ -964,7 +975,16 @@ local function planRound(task)
         end
     end
 
-    if #batch == 0 then return false end
+    if #batch == 0 then
+        -- Something had a recipe but the logic would not run it: that is the
+        -- tool. Nothing workable at all: that is the pile.
+        task.failReason = sawRecipe and "notool" or "blocked"
+        return false
+    end
+
+    -- A round that planned real work clears whatever an earlier round
+    -- recorded, so a later dead end is not reported with a stale reason.
+    task.failReason = nil
 
     -- Fetch ahead of the batch.
     --
