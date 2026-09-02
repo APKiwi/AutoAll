@@ -398,10 +398,15 @@ function Cook.pickNext(task, recipe, containerList)
         if isAllowed(task, recipe, item) and (spicesOn or not isScriptSpice(item)) then
             if isSpiceItem(item) then
                 -- One of each spice, never the same one twice - unless the
-                -- setup window asked for a different number.
+                -- setup window asked for a different number. Read straight
+                -- off the plan rather than through allowanceFor, whose
+                -- fallback is the "same type at most" option and let an
+                -- unnamed seasoning in twice.
+                local limit = task.limits and task.limits[item:getFullType()]
+                if limit == nil then limit = 1 end
                 if spicesOn and spice == nil and task.spices < spiceMax
-                        and (task.usedTypes[item:getFullType()] or 0) < math.max(1, allowanceFor(task, item))
-                        and allowanceFor(task, item) > 0 then
+                        and limit > 0
+                        and (task.usedTypes[item:getFullType()] or 0) < limit then
                     spice = item
                 end
             elseif roomForFood and (task.usedTypes[item:getFullType()] or 0) < allowanceFor(task, item) then
