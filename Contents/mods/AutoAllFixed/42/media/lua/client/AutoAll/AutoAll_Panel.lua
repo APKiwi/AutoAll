@@ -196,8 +196,14 @@ function AA.Panel:refresh()
     if not self.tickBox then return end
     self.nextRefresh = getTimestampMs() + REFRESH_INTERVAL
 
+    -- AA.enabled, not AA.opt: the box has to show what will actually
+    -- happen, and a server can force a module off through its sandbox
+    -- option regardless of the player's own setting. Reading the player's
+    -- setting alone left the box ticked for a module the server had taken
+    -- away, so the menu entry never appeared and toggling it did nothing
+    -- anyone could see. AA.enabled consults both.
     for index, entry in ipairs(self.moduleRows) do
-        self.tickBox:setSelected(index, AA.opt(entry.option) ~= false)
+        self.tickBox:setSelected(index, AA.enabled(entry.key))
     end
 end
 
