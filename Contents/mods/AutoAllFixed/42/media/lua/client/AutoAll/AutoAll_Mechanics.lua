@@ -1343,6 +1343,29 @@ local function carriedParts(task)
     return out
 end
 
+--- Parts this job put on the ground and never got back on the car.
+---
+--- Dropping is often the job working as intended - a spent part is not
+--- carried round the rest of the car - but the ending said nothing whatever
+--- about it, so a brake put down for a worn out wrench and a tyre taken off
+--- by clear were simply gone as far as the player could tell.
+---
+--- Ours by item id, so a spare the player left lying there is never claimed.
+--- Anything picked back up and still being carried belongs to the sweep and
+--- to strandedParts, not here.
+local function droppedParts(task)
+    local out = {}
+    for i = 0, task.vehicle:getPartCount() - 1 do
+        local part = task.vehicle:getPartByIndex(i)
+        local id = part:getId()
+        if task.dropped[id] and not part:getInventoryItem()
+                and not ourCarriedItem(task, part) then
+            table.insert(out, id)
+        end
+    end
+    return out
+end
+
 -- Rounds of dropping before the job stops caring. Three is plenty: a drop
 -- that is going to work works first time.
 local SWEEP_ATTEMPTS = 3
@@ -1367,7 +1390,11 @@ local function finish(task, text, bad)
     -- is being carried any more, so a report built then would come out
     -- empty and cheerful with four parts lying in the mud.
     if not task.ending then
-        task.ending = { text = text, bad = bad, stranded = strandedParts(task) }
+        task.ending = {
+            text = text, bad = bad,
+            stranded = strandedParts(task),
+            dropped  = droppedParts(task),
+        }
     end
 
     -- Favourites are the player's business, not ours. They are counted
@@ -1393,10 +1420,14 @@ local function finish(task, text, bad)
     end
 
     local stranded = task.ending.stranded
+    local dropped  = task.ending.dropped
     print("[AutoAll] mechanics finished after " .. tostring(task.done)
             .. " parts: " .. tostring(task.ending.text))
     for _, entry in ipairs(stranded) do
         print("[AutoAll]   " .. entry.id .. " is still off - " .. entry.why)
+    end
+    for _, id in ipairs(dropped) do
+        print("[AutoAll]   " .. id .. " is on the ground beside the car")
     end
     if keeping > 0 then
         print("[AutoAll]   " .. tostring(keeping) .. " part(s) kept - marked favourite")
@@ -1408,11 +1439,18 @@ local function finish(task, text, bad)
     local ending = task.ending
     task.ending = nil
 
+    -- Named, not counted. "Parts done: N" with a wheel lying in the mud is
+    -- the report the player could not act on, and the part ids are what the
+    -- console lines above use too.
+    local text, worse = ending.text, ending.bad
     if #stranded > 0 then
-        AA.stop(player, getText("UI_AA_mech_left_off", task.done, #stranded), true)
-    else
-        AA.stop(player, ending.text, ending.bad)
+        text, worse = getText("UI_AA_mech_left_off", task.done, #stranded), true
     end
+    if #dropped > 0 then
+        text = text .. " " .. getText("UI_AA_mech_on_ground", table.concat(dropped, ", "))
+    end
+
+    AA.stop(player, text, worse)
 end
 
 local function think(task)

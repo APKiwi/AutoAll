@@ -247,6 +247,7 @@
     "UI_AA_opt_mechMinSuccess_tt": "Parts the game gives a lower chance than this are skipped instead of risked. 0 works on everything, 30 will not wreck the car, 100 never risks a part. The chances themselves are the game's and are never changed.",
     "UI_AA_mech_stuck": "Stuck on this car - %1 parts done.",
     "UI_AA_mech_left_off": "%1 parts done, but %2 could not be refitted - see console.txt.",
+    "UI_AA_mech_on_ground": "Left on the ground: %1.",
     "UI_AA_stop_stuck": "Stopped: an action would not finish.",
     "UI_AA_opt_mechFailSound": "Sound when a part fails",
     "UI_AA_opt_mechFailSound_tt": "Single player only. The base game plays this sound on a failed part through the server, so it is silent when there is no server. This plays it for you. It is heard, not carried: it does not draw zombies the way the multiplayer one does.",
