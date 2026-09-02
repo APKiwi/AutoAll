@@ -628,14 +628,26 @@ local function pendingReturns(task)
     return out
 end
 
+--- Does this character put the leftovers back at all?
+---
+--- Vanilla's own rule, kept: a disorganized character does not tidy up
+--- after itself. ISCraftingUI.ReturnItemToContainer opens with the same
+--- test, and honouring it is the difference between automating the
+--- clicking and rewriting the trait.
+---
+--- Asked before the returning phase starts, not only inside it. Queueing
+--- nothing and then waiting for the ingredients to arrive home is how a
+--- Disorganized cook burned every return attempt and ended on a red
+--- "Could not put N ingredients back" with the "Meal ready" thrown away.
+local function willReturnItems(player)
+    if not AA.opt("cookReturnItems") then return false end
+    return not player:hasTrait(CharacterTrait.DISORGANIZED)
+end
+
 local function queueReturns(task)
     local player = task.player
 
-    -- Vanilla's own rule, kept: a disorganized character does not tidy up
-    -- after itself. ISCraftingUI.ReturnItemToContainer opens with the same
-    -- test, and honouring it is the difference between automating the
-    -- clicking and rewriting the trait.
-    if player:hasTrait(CharacterTrait.DISORGANIZED) then return 0 end
+    if not willReturnItems(player) then return 0 end
 
     local pending = pendingReturns(task)
     for _, entry in ipairs(pending) do
@@ -659,7 +671,7 @@ end
 --- The dish is done. Hand over to the returning phase instead of
 --- stopping outright, so the leftovers can be chased up.
 local function finish(task, text)
-    if not AA.opt("cookReturnItems") then
+    if not willReturnItems(task.player) then
         AA.stop(task.player, text, false)
         return
     end
@@ -743,7 +755,7 @@ end
 --- ESC. The returning phase above handles the tidy ending; this is the
 --- best effort for an abort, where there is no loop left to check up on.
 local function onStop(task)
-    if not AA.opt("cookReturnItems") then return end
+    if not willReturnItems(task.player) then return end
     queueReturns(task)
 end
 
