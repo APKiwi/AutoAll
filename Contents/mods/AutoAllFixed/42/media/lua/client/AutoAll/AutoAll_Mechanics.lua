@@ -1450,6 +1450,18 @@ local function finish(task, text, bad)
         }
     end
 
+    -- One round of drops has to be given time to land before the next round
+    -- looks. A drop is an ISInventoryTransferAction like any other, so on a
+    -- client the answer comes back from the server a moment later - the same
+    -- reason think() waits SETTLE_MS before scoring a part. Without this all
+    -- three rounds burn inside a second and the job reports the parts it has
+    -- just dropped as parts that could not be dropped.
+    if AA.isQueueBusy(player) then return end
+    if task.sweepUntil then
+        if AA.now() < task.sweepUntil then return end
+        task.sweepUntil = nil
+    end
+
     -- Favourites are the player's business, not ours. They are counted
     -- separately so a bag holding nothing but favourites does not burn
     -- every sweep round achieving nothing and then report a failure.
@@ -1469,6 +1481,7 @@ local function finish(task, text, bad)
         for _, entry in ipairs(carried) do
             ISInventoryPaneContextMenu.dropItem(entry.item, player:getPlayerNum())
         end
+        task.sweepUntil = AA.now() + SETTLE_MS
         return
     end
 
