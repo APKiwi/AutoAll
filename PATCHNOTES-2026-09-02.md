@@ -8,6 +8,7 @@ Core
 - Advanced options closes and refreshes properly. Panel shows the effective module state.
 
 Cook
+- New: an empty pot gets Soup and Stew offered when a sink, barrel or well with enough water is within 4 tiles. The character walks over, fills the pot, then cooks. Tickbox in the cook options. Clean water preferred, tainted only as a fallback, and the finished dish is not tainted.
 - Skip rotten always beats the skill slider.
 - Sweeps only what you could walk to and open. Two tiles, never through a wall or a locked crate. It was pulling food through walls.
 - Seasonings no longer count as a pleasant option. One of each unnamed spice.
