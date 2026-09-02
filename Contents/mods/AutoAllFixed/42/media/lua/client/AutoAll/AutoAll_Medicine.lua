@@ -324,7 +324,36 @@ end
 -- one step
 ---------------------------------------------------------------------
 
---- Works out the single next thing to do, and queues it.
+-- How many think ticks the fetch gets to land before a step is given up
+-- on. Eight quarter-second ticks is two seconds, the same window Auto
+-- Reload's preparing phase uses and far longer than a transfer needs.
+local PREPARE_ATTEMPTS = 8
+
+--- Is the item where the vanilla action is about to look for it?
+---
+--- ISDisinfect:isValid tests containsID on the player inventory and
+--- ISApplyBandage:start re-looks its item up with getItemById, so this
+--- asks the same question rather than trusting the transfer to have
+--- landed. transferIfNeeded moves the item into the main inventory, so a
+--- non-recursive containsID is the right test after it.
+local function inInventory(player, item)
+    if not item then return false end
+    local ok, found = pcall(function()
+        local inventory = player:getInventory()
+        if inventory:containsID(item:getID()) then return true end
+        return inventory:getItemById(item:getID()) ~= nil
+    end)
+    return ok and found == true
+end
+
+--- Marks a part as one this job will not touch, and says why once.
+local function block(task, entry, reason)
+    if task.blocked[entry.index] then return end
+    task.blocked[entry.index] = reason
+    task.blockedCount = task.blockedCount + 1
+end
+
+--- Works out the single next thing to do, and queues the FETCH for it.
 ---
 --- Deliberately one action per think tick rather than a batch. Every one
 --- of these changes the state the next decision reads - taking a bullet
@@ -334,18 +363,38 @@ end
 --- job in Auto Clean: build the action when it is its turn, not when the
 --- job is planned.
 ---
---- @return string|nil  what was queued, or nil when there is nothing
-local function queueNextStep(task)
+--- The action itself is NOT built here. transferIfNeeded queues a timed
+--- action of its own - the character walks over and moves the item - so an
+--- action built in this same tick is validated against an inventory the
+--- transfer has not reached. In single player that is harmless. On a
+--- client ISDisinfect fails containsID and is dropped, and ISApplyBandage
+--- is worse: its isValid on a client returns itemWasPresent, which is only
+--- "the item was non-nil at construction", so it starts, start() re-looks
+--- the item up by id and gets nil, and complete() throws inside vanilla
+--- with the bar sitting at 100 per cent. So the plan is handed back and
+--- run a tick later, once the queue has drained. Same shape as Auto
+--- Reload's preparing phase (Reload 290-327).
+---
+--- @return table|nil  the plan, or nil when there is nothing left to do
+local function planNextStep(task)
     local player = task.player
     local work   = Medicine.survey(player)
     if #work == 0 then return nil end
 
     local supplies = reachableItems(player)
-    local doctor   = player
-    local patient  = player
+    local bandage  = bestOf(supplies, bandageScore)
+
+    local function plan(kind, entry, item)
+        if item then
+            ISInventoryPaneContextMenu.transferIfNeeded(player, item)
+        end
+        return { kind = kind, part = entry.part, index = entry.index,
+                 item = item, tries = 0 }
+    end
 
     for _, entry in ipairs(work) do
-        local part = entry.part
+        local part    = entry.part
+        local blocked = false
 
         if part:haveBullet() then
             local probe = bestOf(supplies, function(item)
@@ -353,10 +402,15 @@ local function queueNextStep(task)
                 return nil
             end)
             if probe then
-                ISInventoryPaneContextMenu.transferIfNeeded(player, probe)
-                ISTimedActionQueue.add(ISRemoveBullet:new(doctor, patient, part))
-                return "bullet"
+                return plan("bullet", entry, probe)
             end
+            -- No probe, so this part is BLOCKED, not merely skipped. It
+            -- must not fall through to the bandage step: bandaged() makes
+            -- BaseHandler:isInjured() false, which hides the part from
+            -- this survey and from vanilla's Remove Bullet as well, and
+            -- the bullet stays in until the player strips the dressing
+            -- off by hand.
+            blocked = true
 
         elseif part:haveGlass() then
             -- Unlike every other step this one has a vanilla fallback
@@ -367,49 +421,131 @@ local function queueNextStep(task)
                 if isProbe(item, "REMOVE_GLASS") then return 1 end
                 return nil
             end)
-            if probe then
-                ISInventoryPaneContextMenu.transferIfNeeded(player, probe)
-                ISTimedActionQueue.add(ISRemoveGlass:new(doctor, patient, part, false))
-            else
-                ISTimedActionQueue.add(ISRemoveGlass:new(doctor, patient, part, true))
-            end
-            return "glass"
+            return plan("glass", entry, probe)
 
         elseif part:isNeedBurnWash() then
             local cloth = bestOf(supplies, burnWashScore)
             if cloth then
-                ISInventoryPaneContextMenu.transferIfNeeded(player, cloth)
-                ISTimedActionQueue.add(ISCleanBurn:new(doctor, patient, cloth, part))
-                return "burn"
+                return plan("burn", entry, cloth)
             end
+            -- Same as the bullet: dressing an unwashed burn hides it.
+            blocked = true
         end
 
-        -- Disinfect once per part, and only while the wound is still
-        -- open. Tracked on the task rather than read off the body,
-        -- because there is no "this wound is disinfected" flag to read -
-        -- that state lives on the dressing, which does not exist yet.
-        if not part:bandaged() and not task.disinfected[entry.index]
-                and AA.opt("medDisinfect") then
-            local alcohol = bestOf(supplies, disinfectantScore)
-            if alcohol then
-                task.disinfected[entry.index] = true
-                ISInventoryPaneContextMenu.transferIfNeeded(player, alcohol)
-                ISTimedActionQueue.add(ISDisinfect:new(doctor, patient, alcohol, part))
-                return "disinfect"
+        if blocked then
+            block(task, entry, "tool")
+        else
+            -- Disinfect once per part, and only while the wound is still
+            -- open. Tracked on the task rather than read off the body,
+            -- because there is no "this wound is disinfected" flag to read -
+            -- that state lives on the dressing, which does not exist yet.
+            --
+            -- Gated on there being a bandage to follow it, because a
+            -- disinfect is invisible to bodyState: without that gate a
+            -- character with alcohol and no dressings spends a dose per
+            -- part for twelve parts and then reports itself stuck.
+            if bandage and not part:bandaged() and not task.disinfected[entry.index]
+                    and AA.opt("medDisinfect") then
+                local alcohol = bestOf(supplies, disinfectantScore)
+                if alcohol then
+                    return plan("disinfect", entry, alcohol)
+                end
             end
-        end
 
-        if not part:bandaged() then
-            local bandage = bestOf(supplies, bandageScore)
-            if bandage then
-                ISInventoryPaneContextMenu.transferIfNeeded(player, bandage)
-                ISTimedActionQueue.add(ISApplyBandage:new(doctor, patient, bandage, part, true))
-                return "bandage"
+            if not part:bandaged() then
+                if bandage then
+                    return plan("bandage", entry, bandage)
+                end
+                -- Nothing clean. If the only candidate was a dirty one,
+                -- say so rather than reporting an empty inventory.
+                if bestOf(supplies, dirtyBandageScore) then
+                    if not task.noClean[entry.index] then
+                        task.noClean[entry.index] = true
+                        task.noCleanCount = task.noCleanCount + 1
+                    end
+                end
             end
         end
     end
 
     return nil
+end
+
+--- Phase two: the fetch has drained, so build the action now.
+---
+--- @return boolean  true while the step is still being worked on
+local function runPlan(task)
+    local player  = task.player
+    local plan    = task.plan
+    local doctor  = player
+    local patient = player
+    local part    = plan.part
+
+    if plan.item and not inInventory(player, plan.item) then
+        -- On a client the transfer settles through the server and can
+        -- still be in flight after its action has drained.
+        plan.tries = plan.tries + 1
+        if plan.tries <= PREPARE_ATTEMPTS then return true end
+
+        print("[AutoAll] medicine: " .. tostring(plan.kind)
+                .. " item never arrived in the inventory")
+        task.plan    = nil
+        -- Counts as a step that changed nothing, so the no-progress
+        -- detector ends the job rather than retrying forever.
+        task.pending = plan.kind
+        return true
+    end
+
+    if plan.kind == "bullet" then
+        ISTimedActionQueue.add(ISRemoveBullet:new(doctor, patient, part))
+    elseif plan.kind == "glass" then
+        -- No probe means the vanilla hands variant.
+        ISTimedActionQueue.add(ISRemoveGlass:new(doctor, patient, part, plan.item == nil))
+    elseif plan.kind == "burn" then
+        ISTimedActionQueue.add(ISCleanBurn:new(doctor, patient, plan.item, part))
+    elseif plan.kind == "disinfect" then
+        ISTimedActionQueue.add(ISDisinfect:new(doctor, patient, plan.item, part))
+        -- Not marked disinfected yet. The action can still be dropped, and
+        -- a wound flagged as done that never was gets bandaged dirty. The
+        -- flag is promoted only once the dose has visibly been spent.
+        task.disinfectPending = {
+            index = plan.index,
+            item  = plan.item,
+            dose  = disinfectantScore(plan.item),
+        }
+    elseif plan.kind == "bandage" then
+        ISTimedActionQueue.add(ISApplyBandage:new(doctor, patient, plan.item, part, true))
+    end
+
+    task.plan    = nil
+    task.pending = plan.kind
+    return true
+end
+
+--- Did the disinfect queued last step actually run?
+---
+--- bodyState carries no disinfect flag, so the only evidence is the
+--- disinfectant itself: ISDisinfect spends fluid or a use, and
+--- disinfectantScore is exactly how full it is. A dose that went down
+--- promotes the flag AND counts as progress, so a run of disinfects is
+--- not mistaken for a job doing nothing.
+---
+--- @return boolean  true when a disinfect is confirmed
+local function confirmDisinfect(task)
+    local marker = task.disinfectPending
+    if not marker then return false end
+    task.disinfectPending = nil
+
+    local after = disinfectantScore(marker.item)
+    local spent = after == nil
+            or marker.dose == nil
+            or after < marker.dose - 0.0001
+
+    if spent then
+        task.disinfected[marker.index] = true
+        return true
+    end
+    return false
 end
 
 ---------------------------------------------------------------------
@@ -515,9 +651,17 @@ local function think(task)
 
     if AA.isQueueBusy(player) then return end
 
+    -- The fetch queued last tick has drained. Now, and only now, is the
+    -- treatment built - see the note on planNextStep.
+    if task.plan then
+        runPlan(task)
+        return
+    end
+
     if task.pending then
+        local disinfected = confirmDisinfect(task)
         local state = bodyState(player)
-        if state ~= task.lastState then
+        if state ~= task.lastState or disinfected then
             task.done       = task.done + 1
             task.lastState  = state
             task.noProgress = 0
@@ -536,13 +680,19 @@ local function think(task)
 
     task.steps = task.steps + 1
     if task.steps > MAX_STEPS then
-        AA.stop(player, getText("UI_AA_med_done", task.done), false)
+        -- Two hundred steps is a runaway, not a finished job. Reporting it
+        -- as done sends a player off still bleeding.
+        AA.stop(player, getText("UI_AA_med_stuck", task.done), true)
         return
     end
 
-    local queued = queueNextStep(task)
-    if not queued then
-        if task.done == 0 then
+    local plan = planNextStep(task)
+    if not plan then
+        if task.blockedCount > 0 then
+            AA.stop(player, getText("UI_AA_med_blocked", task.blockedCount), true)
+        elseif task.noCleanCount > 0 then
+            AA.stop(player, getText("UI_AA_med_noclean", task.noCleanCount), true)
+        elseif task.done == 0 then
             AA.stop(player, getText("UI_AA_med_nosupplies"), true)
         else
             AA.stop(player, getText("UI_AA_med_done", task.done), false)
@@ -550,7 +700,7 @@ local function think(task)
         return
     end
 
-    task.pending = queued
+    task.plan = plan
 end
 
 function Medicine.start(player)
@@ -570,7 +720,19 @@ function Medicine.start(player)
         done        = 0,
         noProgress  = 0,
         pending     = nil,
+        -- The step whose fetch is in flight, run a tick later.
+        plan        = nil,
         disinfected = {},
+        -- A queued disinfect, promoted into disinfected once its dose is
+        -- confirmed spent.
+        disinfectPending = nil,
+        -- Parts left alone because a step they need has no item, and parts
+        -- with nothing but a dirty bandage. Both are reported at the end so
+        -- the player knows to deal with them by hand.
+        blocked      = {},
+        blockedCount = 0,
+        noClean      = {},
+        noCleanCount = 0,
         lastState   = bodyState(player),
         attackPrint = attackPrint(player),
         -- Bleeding is the condition, not the danger. See the block above

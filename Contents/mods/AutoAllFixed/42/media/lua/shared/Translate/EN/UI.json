@@ -326,6 +326,8 @@
     "UI_AA_med_nothing": "Nothing here needs treating.",
     "UI_AA_med_nosupplies": "No bandages or tools within reach.",
     "UI_AA_med_stuck": "Treatment stopped making progress (%1 done).",
+    "UI_AA_med_blocked": "%1 wound(s) need a tool you do not have. Left undressed so you can still treat them.",
+    "UI_AA_med_noclean": "%1 wound(s) have no clean bandage. Left undressed rather than dressed with a dirty one.",
     "UI_AA_opt_enableExercise": "Auto Exercise",
     "UI_MM_ModName": "[B42.20] Muscle Manager",
     "UI_MM_auto": "AUTO",
