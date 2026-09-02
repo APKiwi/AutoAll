@@ -59,6 +59,10 @@ AA.defaults = {
     cookSpiceMax       = 3,     -- how many different spices at most
     cookSkipUnhappy    = true,  -- skip ingredients that make the meal depressing
     cookSkipRotten     = true,
+    -- On by default: it only ever adds recipes the menu could not
+    -- offer before, and an empty pot with a sink behind it is the
+    -- case everybody hits first.
+    cookFillWater      = true,  -- fill the pot from a nearby water source first
     cookSkipPoison     = true,
     cookSkipFavorite   = true,  -- never cook items flagged as favourite
     cookReturnItems    = true,  -- put borrowed items back where they came from
@@ -374,6 +378,7 @@ local function createModOptions()
 
     options:addTickBox("cookSkipUnhappy", "UI_AA_opt_cookSkipUnhappy", d.cookSkipUnhappy, "UI_AA_opt_cookSkipUnhappy_tt")
     options:addTickBox("cookSkipRotten", "UI_AA_opt_cookSkipRotten", d.cookSkipRotten, "UI_AA_opt_cookSkipRotten_tt")
+    options:addTickBox("cookFillWater", "UI_AA_opt_cookFillWater", d.cookFillWater, "UI_AA_opt_cookFillWater_tt")
     options:addTickBox("cookSkipPoison", "UI_AA_opt_cookSkipPoison", d.cookSkipPoison, "UI_AA_opt_cookSkipPoison_tt")
     options:addTickBox("cookSkipFavorite", "UI_AA_opt_cookSkipFavorite", d.cookSkipFavorite, "UI_AA_opt_cookSkipFavorite_tt")
     options:addTickBox("cookSpoilFirst", "UI_AA_opt_cookSpoilFirst", d.cookSpoilFirst, "UI_AA_opt_cookSpoilFirst_tt")
