@@ -329,6 +329,20 @@ local function unreachableOnWreck(vehicle, part)
     return string.find(name, "Burnt") ~= nil or string.find(name, "Smashed") ~= nil
 end
 
+--- The id of the item this job took off this slot, whether that item is
+--- still in the inventory or lying on the floor where the job put it down.
+---
+--- A part dropped on defer stays ours. It has to: an install that picks it
+--- back up and then loses its roll leaves it in the inventory again, and if
+--- the drop had wiped the ownership nothing would recognise it after that.
+--- bestItemFor skips it once it is broken, and deadWeight, the overload
+--- shed, the closing sweep and the ending report all key off ourCarriedItem,
+--- which would answer nil for the rest of the job.
+local function ownedIdFor(task, part)
+    local id = part:getId()
+    return task.ours[id] or (task.dropped and task.dropped[id]) or nil
+end
+
 --- The best item the character is carrying for an empty part slot.
 ---
 --- "Best" is highest condition, which is what a player picking from the
@@ -351,6 +365,30 @@ local function bestItemFor(part, typeToItem)
         end
     end
     return best
+end
+
+--- The very item this job took off this slot, if it is still to hand.
+---
+--- Looked up in the same map bestItemFor uses, so it finds the part on the
+--- floor where a defer put it down as well as one in a pocket. Broken is
+--- treated as gone: the game will not fit it and there is nothing to be
+--- gained by holding the slot open for it.
+local function ourItemFor(task, part, typeToItem)
+    local wanted = ownedIdFor(task, part)
+    if not wanted then return nil end
+
+    local types = part:getItemType()
+    if not types or types:isEmpty() then return nil end
+
+    for i = 0, types:size() - 1 do
+        local matching = typeToItem[types:get(i)]
+        if matching then
+            for _, item in ipairs(matching) do
+                if item:getID() == wanted and not item:isBroken() then return item end
+            end
+        end
+    end
+    return nil
 end
 
 --- Why this part could not be put back on, or nil when it could.
@@ -409,12 +447,19 @@ end
 --- once a part is off, putting it back is an obligation, not a choice, and
 --- it is retried until it goes on or breaks trying. Leaving it in the
 --- inventory forever is the worse outcome by a long way.
-local function canPutOn(player, vehicle, part, typeToItem)
+--- The car's own part goes back on the car. bestItemFor ranks by condition
+--- over the inventory and every open container, so on its own it bolts the
+--- player's 90% spare onto the training wreck and leaves the wreck's own
+--- 20% part in the bag, with the slot filled so nothing ever offers it
+--- again and not a word said. What this job took off this slot goes back on
+--- it, and bestItemFor is only the fallback for when ours is gone or broken.
+local function canPutOn(task, part, typeToItem)
+    local player, vehicle = task.player, task.vehicle
     if part:getInventoryItem() then return nil end
     if not part:getTable("install") then return nil end
     if unreachableOnWreck(vehicle, part) then return nil end
     if not vehicle:canInstallPart(player, part) then return nil end
-    return bestItemFor(part, typeToItem)
+    return ourItemFor(task, part, typeToItem) or bestItemFor(part, typeToItem)
 end
 
 ---------------------------------------------------------------------
@@ -473,20 +518,6 @@ local function payingInstall(task, part, item)
     if cycleOf(task, part:getId()).on then return false end
     if isClient() then return true end
     return not xpAlreadyPaid(task.player, task.vehicle, item, "1")
-end
-
---- The id of the item this job took off this slot, whether that item is
---- still in the inventory or lying on the floor where the job put it down.
----
---- A part dropped on defer stays ours. It has to: an install that picks it
---- back up and then loses its roll leaves it in the inventory again, and if
---- the drop had wiped the ownership nothing would recognise it after that.
---- bestItemFor skips it once it is broken, and deadWeight, the overload
---- shed, the closing sweep and the ending report all key off ourCarriedItem,
---- which would answer nil for the rest of the job.
-local function ownedIdFor(task, part)
-    local id = part:getId()
-    return task.ours[id] or (task.dropped and task.dropped[id]) or nil
 end
 
 --- The item this job itself took off the car for this part, if the
@@ -600,7 +631,7 @@ local function stillHasWork(task, part, typeToItem, tagToItem)
                 and canTakeOff(task.player, task.vehicle, part, typeToItem, tagToItem)
     end
 
-    local item = canPutOn(task.player, task.vehicle, part, typeToItem)
+    local item = canPutOn(task, part, typeToItem)
     return item ~= nil and payingInstall(task, part, item)
 end
 
@@ -802,7 +833,7 @@ local function candidates(task)
                 add({ part = part, action = "uninstall", order = index })
             end
         else
-            local item = reachable and canPutOn(player, vehicle, part, typeToItem) or nil
+            local item = reachable and canPutOn(task, part, typeToItem) or nil
             if item and payingInstall(task, part, item) then
                 -- Still a candidate, only a late one: see wouldBlockWork.
                 -- Deferring rather than writing it off matters - if the
