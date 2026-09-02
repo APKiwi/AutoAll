@@ -445,6 +445,38 @@ function Cook.findWaterSource(player, need)
     return best, bestTainted
 end
 
+--- The water recipes that could actually run right now.
+---
+--- Two tests, and both have to pass: the recipe is only short of water,
+--- and there is a source in reach holding the difference. Returns a list
+--- of { recipe = recipe, tainted = true|false }, in the order the recipes
+--- came back in.
+---
+--- Shared by the context menu and the setup window on purpose. The two
+--- used to answer this question separately, and a pot that got Soup in
+--- one has to get Soup in the other.
+---
+--- The sweep is kept per shortfall rather than per recipe: Soup and Stew
+--- ask the same pot for the same water, and this runs on every right
+--- click of a pot.
+function Cook.reachableWaterRecipes(player, base, containerList)
+    local out = {}
+    local found = {}
+
+    for _, recipe in ipairs(Cook.waterRecipes(player, base, containerList)) do
+        local need = waterShortfall(base, recipe)
+        if found[need] == nil then
+            found[need] = { Cook.findWaterSource(player, need) }
+        end
+        local source, tainted = found[need][1], found[need][2]
+        if source then
+            table.insert(out, { recipe = recipe, tainted = tainted == true })
+        end
+    end
+
+    return out
+end
+
 ---------------------------------------------------------------------
 -- ingredient picking
 ---------------------------------------------------------------------
@@ -1202,37 +1234,25 @@ end
 
 --- The recipes this item is only short of water for.
 ---
---- Offered exactly when the job could actually run: the option is on,
---- the recipe wants water the pot has not got, and there is a source in
---- reach holding enough to make up the difference. With no source the
---- entry is not drawn at all rather than greyed out - there is nothing
---- the player could do about it from this menu, and an empty pot with no
---- sink in the room is the ordinary case rather than a fault.
+--- Offered exactly when the job could actually run, which is what
+--- Cook.reachableWaterRecipes answers. With no source in reach the entry
+--- is not drawn at all rather than greyed out - there is nothing the
+--- player could do about it from this menu, and an empty pot with no sink
+--- in the room is the ordinary case rather than a fault.
 local function addWaterOptions(context, player, base, containerList)
-    -- Soup and Stew ask the same pot for the same water, so the sweep is
-    -- kept per shortfall rather than per recipe: this runs on every right
-    -- click of a pot.
-    local found = {}
-
-    for _, recipe in ipairs(Cook.waterRecipes(player, base, containerList)) do
-        local need = waterShortfall(base, recipe)
-        if found[need] == nil then
-            found[need] = { Cook.findWaterSource(player, need) }
+    for _, entry in ipairs(Cook.reachableWaterRecipes(player, base, containerList)) do
+        local recipe = entry.recipe
+        local option = AA.addOption(context,
+                getText("UI_AA_cook_option", Cook.recipeName(recipe)),
+                player, Cook.onStartWater, base, recipe:getUntranslatedName())
+        local tooltip = ISInventoryPaneContextMenu.addToolTip()
+        tooltip.description = getText("UI_AA_cook_option_water_tt",
+                recipe:getMaxItems() or 0)
+        if entry.tainted then
+            tooltip.description = tooltip.description
+                    .. " <LINE> " .. getText("UI_AA_cook_tainted")
         end
-        local source, tainted = found[need][1], found[need][2]
-        if source then
-            local option = AA.addOption(context,
-                    getText("UI_AA_cook_option", Cook.recipeName(recipe)),
-                    player, Cook.onStartWater, base, recipe:getUntranslatedName())
-            local tooltip = ISInventoryPaneContextMenu.addToolTip()
-            tooltip.description = getText("UI_AA_cook_option_water_tt",
-                    recipe:getMaxItems() or 0)
-            if tainted then
-                tooltip.description = tooltip.description
-                        .. " <LINE> " .. getText("UI_AA_cook_tainted")
-            end
-            option.toolTip = tooltip
-        end
+        option.toolTip = tooltip
     end
 end
 
