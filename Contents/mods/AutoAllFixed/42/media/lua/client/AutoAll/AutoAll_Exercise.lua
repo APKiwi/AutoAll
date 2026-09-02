@@ -60,10 +60,30 @@ AA.exerciseGateLoaded = true
 -- "you have both mods installed".
 local warned = false
 
+-- With nothing readable to say whether a loop is running, the blind stop
+-- below cannot tell whether it worked, so it is rate limited rather than
+-- retried on every tick.
+local BLIND_STOP_EVERY = 5000   -- ms
+local blindStopAt = 0
+
 --- True when the Muscle Manager that actually loaded is one that never
 --- asks Auto All anything.
 local function ungatedCopy()
     return MuscleManager ~= nil and type(MuscleManager.enabled) ~= "function"
+end
+
+--- Unticks the AUTO box itself, not just the flag behind it.
+---
+--- ISFitnessUI writes the widget's state back into MuscleManager.autoTicked,
+--- so clearing only the flag left the box drawn ticked. The player pressed
+--- OK, a set started, this gate killed it a tick later, and the box was
+--- still ticked ready to do it again.
+local function untickWidget(player)
+    local panels = ISFitnessUI and ISFitnessUI.instance
+    if type(panels) ~= "table" then return end
+    local panel = panels[player:getPlayerNum() + 1]
+    if not panel or not panel.mmAuto then return end
+    pcall(function() panel.mmAuto:setSelected(1, false) end)
 end
 
 --- Whatever loaded, hold it to the switch.
@@ -78,29 +98,52 @@ local function enforce(player)
     if MuscleManager.autoTicked == true then
         MuscleManager.autoTicked = false
     end
+    untickWidget(player)
+
+    -- Said out loud. Killing a set the player asked for without a word looks
+    -- like the mod failing rather than the switch working.
+    local reason = getText("UI_AA_exercise_off")
 
     local states = MuscleManager.states
-    if type(states) ~= "table" then return end
+    if type(states) == "table" then
+        local state = states[player:getPlayerNum()]
+        if not state or state.active ~= true then return end
 
-    local state = states[player:getPlayerNum()]
-    if not state or state.active ~= true then return end
+        if not warned then
+            warned = true
+            print("[AutoAll] exercise is switched off but a Muscle Manager loop was running"
+                    .. (ungatedCopy() and " - the standalone Muscle Manager is loaded and"
+                        .. " its files replace the bundled ones, so it never sees the switch."
+                        .. " Stopping it from here." or " - stopping it."))
+        end
+
+        if type(MuscleManager.stop) == "function" then
+            pcall(MuscleManager.stop, player, reason, true)
+        else
+            -- Nothing to call. Take the state away, which is what every
+            -- decision in that loop is keyed on.
+            state.active = false
+            states[player:getPlayerNum()] = nil
+        end
+        return
+    end
+
+    -- MuscleManager.states is not the table this file expects, so there is
+    -- nothing to read to decide whether a loop is running at all. Ask it to
+    -- stop anyway: stopping a loop that is not running is a no-op in every
+    -- build seen so far, and the alternative is an ungated loop carrying on
+    -- with the switch off, which is the exact bug this file exists for.
+    if type(MuscleManager.stop) ~= "function" then return end
+    local at = getTimestampMs()
+    if at - blindStopAt < BLIND_STOP_EVERY then return end
+    blindStopAt = at
 
     if not warned then
         warned = true
-        print("[AutoAll] exercise is switched off but a Muscle Manager loop was running"
-                .. (ungatedCopy() and " - the standalone Muscle Manager is loaded and"
-                    .. " its files replace the bundled ones, so it never sees the switch."
-                    .. " Stopping it from here." or " - stopping it."))
+        print("[AutoAll] exercise is switched off and MuscleManager.states is not a table"
+                .. " - stopping any loop blind, since there is no state to read.")
     end
-
-    if type(MuscleManager.stop) == "function" then
-        pcall(MuscleManager.stop, player, nil)
-    else
-        -- Nothing to call. Take the state away, which is what every
-        -- decision in that loop is keyed on.
-        state.active = false
-        states[player:getPlayerNum()] = nil
-    end
+    pcall(MuscleManager.stop, player, reason, true)
 end
 
 Events.OnPlayerUpdate.Add(enforce)

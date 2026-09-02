@@ -391,6 +391,11 @@ end
 function MM.showSummary(state)
     if not MM.opt("showSummary") then return end
     if (state.sets or 0) <= 0 then return end
+    -- state.sets counts sets queued, not sets done, so a session stopped a
+    -- tick after it started still had one. The card is for sessions that
+    -- actually trained: state.trained is only ever set once the vanilla
+    -- fitness action has really been seen running.
+    if not state.trained then return end
     local player = state.player
     if player:isDead() then return end
     if not (state.xpStartStrength and state.sessionStartAt) then return end
@@ -1065,6 +1070,7 @@ function MM.think(state)
     if state.phase == "exercising" then
         if exercising then
             state.sawAction = true
+            state.trained = true
             state.failedStarts = 0
             if endurance <= restAt then
                 MM.stopFitnessAction(player)

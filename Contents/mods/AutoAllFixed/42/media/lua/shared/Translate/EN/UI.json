@@ -2,6 +2,7 @@
     "UI_AA_ModName": "Auto All - Cook, Read, Tailoring and Reload",
     "UI_AA_stopped": "Stopped.",
     "UI_AA_stop_replaced": "Previous automation stopped.",
+    "UI_AA_exercise_off": "Auto training stopped: Auto Exercise is switched off.",
     "UI_AA_stop_generic": "Stopped.",
     "UI_AA_stop_zombie": "Stopped: zombies nearby.",
     "UI_AA_stop_damage": "Stopped: you are taking damage.",
