@@ -777,7 +777,14 @@ function Cook.start(player, base, recipeId, plan)
 
     local containerList = Cook.getContainers(player)
     local recipe = Cook.findRecipe(player, base, recipeId, containerList)
-    if not recipe then return end
+    if not recipe then
+        -- The setup window closes before this runs, so the recipe is
+        -- resolved again against whatever is still within reach. Losing it
+        -- here used to end the whole thing in silence, looking like Start
+        -- did nothing. Same message CookUI.open gives for the same case.
+        HaloTextHelper.addBadText(player, getText("UI_AA_cook_noingredients"))
+        return
+    end
 
     plan = plan or {}
 
