@@ -551,7 +551,11 @@ local function wringThink(task)
         -- Scored by asking the game, not by the queue draining: an action
         -- that was refused drains exactly the same way.
         local item = itemOf(task, task.current)
-        if not item or not stillWet(item) then
+        -- Only score a garment this job actually queued. The task starts in
+        -- this phase with current still nil, so the very first tick came
+        -- through here, itemOf answered nil for a nil id, and the job
+        -- credited itself with wringing something it had never touched.
+        if task.current and (not item or not stillWet(item)) then
             task.wrung = task.wrung + 1
         end
 
@@ -849,7 +853,12 @@ local function addWringInventoryMenu(playerNum, context, items)
 
     -- Only offered off something that is itself wet, so a right click on a
     -- dry shirt does not grow an entry about a different garment.
-    if item:getWetness() <= WET_ENOUGH then return end
+    --
+    -- Gated on the same stillWet() the job itself uses, not on WET_ENOUGH.
+    -- Wringing leaves shoes at SIXTY, so a boot at wetness 40 cleared the
+    -- bare threshold, grew a menu entry, and was then never picked up by
+    -- collectWet - an entry that promises work the job will not do.
+    if not stillWet(item) then return end
 
     Clean.addWringOption(context, player, ISInventoryPaneContextMenu.addToolTip)
 end
