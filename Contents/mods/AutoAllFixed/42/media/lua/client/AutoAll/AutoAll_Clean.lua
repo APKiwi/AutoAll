@@ -204,6 +204,35 @@ local function soapRemaining(player)
     return ISWashClothing.GetSoapRemaining(soaps)
 end
 
+--- What a list of gathered cleaning products is worth, by vanilla's own
+--- maths (GetSoapRemaining only iterates size/get, so any list will do).
+---
+--- This exists because the read that used to stand in for it was the bug.
+--- ISInventoryPaneContextMenu.transferIfNeeded only QUEUES a transfer, and
+--- soapRemaining() was called a few lines further down, before a single one
+--- of those transfers had run. So "with cleaning products" always saw zero,
+--- marked every garment noSoap, and washed the whole pile at the slow rate
+--- with the soap sitting unused in the bag afterwards.
+---
+--- Counting what the fetch found is the right shape here rather than moving
+--- the read to after the fetch settles: this job has no gather-then-plan
+--- split to move it into. queueEverything runs once, in the tick the player
+--- clicks, and think() does not run again until the whole queue has drained
+--- - by which point the job is over. A phase split would be a restructure
+--- rather than a fix, and it would also cost the batch its single queue.
+local function soapValueOf(items)
+    if #items == 0 then return 0 end
+
+    local list = ArrayList.new()
+    for _, soap in ipairs(items) do
+        list:add(soap)
+    end
+
+    local ok, total = pcall(function() return ISWashClothing.GetSoapRemaining(list) end)
+    if ok and type(total) == "number" then return total end
+    return 0
+end
+
 --- Finds soap in the containers in reach so the player does not have to
 --- fish it out of the cupboard by hand first.
 function Clean.gatherSoap(player)
@@ -456,6 +485,30 @@ local function queueRedress(task)
     return queued
 end
 
+-- Sweeps of the final re-dress. The first one is queued by the redressing
+-- phase itself, the rest by the verifying phase below when the game says a
+-- garment still is not on. Three, because a wear that was refused three
+-- times in a row is not going to land on the fourth.
+local MAX_REDRESS_TRIES = 3
+
+--- Called by AA.stop for every ending this job has, not just the tidy one.
+---
+--- queueOneWring takes a garment off and only the job's own phases ever put
+--- it back, so a stop part way through - a zombie, a movement key, ESC,
+--- damage, a stall - left the character standing in its underwear with the
+--- shirt on the floor of the inventory. AA.stop clears the action queue
+--- BEFORE calling this hook (see AutoAll_Core), which is exactly what makes
+--- it safe to queue the wears here: they survive the clear that cancelled
+--- the abandoned wringing.
+local function wringOnStop(task)
+    if not task.player or task.player:isDead() then return end
+    for id in pairs(task.wornIds) do
+        -- One garment that cannot be resolved must not cost the others
+        -- their wear, so each is queued on its own.
+        pcall(queueWear, task, id)
+    end
+end
+
 local function advance(task)
     task.current   = nil
     task.wearTries = 0
@@ -498,7 +551,11 @@ local function wringThink(task)
         -- Scored by asking the game, not by the queue draining: an action
         -- that was refused drains exactly the same way.
         local item = itemOf(task, task.current)
-        if not item or not stillWet(item) then
+        -- Only score a garment this job actually queued. The task starts in
+        -- this phase with current still nil, so the very first tick came
+        -- through here, itemOf answered nil for a nil id, and the job
+        -- credited itself with wringing something it had never touched.
+        if task.current and (not item or not stillWet(item)) then
             task.wrung = task.wrung + 1
         end
 
@@ -521,8 +578,27 @@ local function wringThink(task)
     -- so queueing the wear and stopping in the same tick would throw the
     -- wear away.
     if task.phase == "redressing" then
+        task.phase        = "verifying"
+        task.redressTries = 0
+        if queueRedress(task) > 0 then
+            task.redressTries = 1
+            return
+        end
+    end
+
+    -- The sweep queued its wears and the queue has now drained, which on
+    -- its own proves nothing: a wear the client threw away drains exactly
+    -- like one that landed. So ask the game what is actually on the
+    -- character and re-queue whatever is missing, a bounded number of
+    -- times, before the job is allowed to call itself done. Saying
+    -- "wringing done" over a character holding its own trousers is the
+    -- half of TrickterTravvy's report the phase split alone did not close.
+    if task.phase == "verifying" then
+        if task.redressTries < MAX_REDRESS_TRIES and queueRedress(task) > 0 then
+            task.redressTries = task.redressTries + 1
+            return
+        end
         task.phase = "done"
-        if queueRedress(task) > 0 then return end
     end
 
     AA.stop(player, getText("UI_AA_wring_done", task.wrung), false)
@@ -554,7 +630,11 @@ function Clean.startWring(player)
         -- Every garment this job took off, for the final re-dress sweep.
         wornIds   = {},
         wearTries = 0,
+        redressTries = 0,
         think     = wringThink,
+        -- Runs on every ending, tidy or not, so no stop can leave the
+        -- character undressed. See wringOnStop.
+        onStop    = wringOnStop,
         -- A wring is seconds long (getDuration is wetness * 5), so an
         -- action still at the head of the queue after twenty is not
         -- working. Opt-in, and the job only gets two recoveries.
@@ -601,18 +681,29 @@ local function queueEverything(task)
     -- whatever the game says is there and needs no special case.
     local budget = fluidAmountOf(source)
 
+    -- What is already carried, plus what the fetch below is bringing. The
+    -- fetch has only been queued by the time the wash is planned, so the
+    -- second half has to be counted rather than read back. See soapValueOf.
+    local soapLeft = 0
     if useSoap then
+        local fetched, seen = {}, {}
         for _, soap in ipairs(Clean.gatherSoap(player)) do
-            ISInventoryPaneContextMenu.transferIfNeeded(player, soap)
+            -- getContainers can hand the same container back twice, so the
+            -- same bar can be offered twice. Transferring it twice is a
+            -- wasted action and counting it twice is a lie about the soap.
+            if not seen[soap] then
+                seen[soap] = true
+                table.insert(fetched, soap)
+                ISInventoryPaneContextMenu.transferIfNeeded(player, soap)
+            end
         end
+        soapLeft = soapRemaining(player) + soapValueOf(fetched)
     end
 
     if AA.opt("cleanSelf") and Clean.selfNeedsWashing(player) then
         ISTimedActionQueue.add(ISWashYourself:new(player, source))
         budget = budget - ISWashYourself.GetRequiredWater(player)
     end
-
-    local soapLeft = useSoap and soapRemaining(player) or 0
 
     for _, item in ipairs(task.items) do
         local water = ISWashClothing.GetRequiredWater(item)
@@ -762,7 +853,12 @@ local function addWringInventoryMenu(playerNum, context, items)
 
     -- Only offered off something that is itself wet, so a right click on a
     -- dry shirt does not grow an entry about a different garment.
-    if item:getWetness() <= WET_ENOUGH then return end
+    --
+    -- Gated on the same stillWet() the job itself uses, not on WET_ENOUGH.
+    -- Wringing leaves shoes at SIXTY, so a boot at wetness 40 cleared the
+    -- bare threshold, grew a menu entry, and was then never picked up by
+    -- collectWet - an entry that promises work the job will not do.
+    if not stillWet(item) then return end
 
     Clean.addWringOption(context, player, ISInventoryPaneContextMenu.addToolTip)
 end

@@ -273,6 +273,23 @@ local ORDER = {
 local RANK = {}
 for index, id in ipairs(ORDER) do RANK[id] = index end
 
+-- The corners of the car, as they are spelled in a part id. A knot of three
+-- parts each - tyre, brake, suspension - that can only be worked in one
+-- order, so the job has to be able to ask "is this the corner I am standing
+-- at" without a table of relationships that would have to be kept in step
+-- with ORDER.
+local CORNERS = {
+    "FrontLeft", "FrontRight", "MiddleLeft", "MiddleRight", "RearLeft", "RearRight",
+}
+
+--- The corner a part belongs to, or nil for one that is not at a corner.
+local function cornerOf(id)
+    for _, name in ipairs(CORNERS) do
+        if id:find(name, 1, true) then return name end
+    end
+    return nil
+end
+
 --- Every part of the vehicle, in working order. Anything not on the list
 --- above - modded parts, trailers, the engine - goes last rather than
 --- being dropped, so a modded car still gets worked on.
@@ -329,6 +346,20 @@ local function unreachableOnWreck(vehicle, part)
     return string.find(name, "Burnt") ~= nil or string.find(name, "Smashed") ~= nil
 end
 
+--- The id of the item this job took off this slot, whether that item is
+--- still in the inventory or lying on the floor where the job put it down.
+---
+--- A part dropped on defer stays ours. It has to: an install that picks it
+--- back up and then loses its roll leaves it in the inventory again, and if
+--- the drop had wiped the ownership nothing would recognise it after that.
+--- bestItemFor skips it once it is broken, and deadWeight, the overload
+--- shed, the closing sweep and the ending report all key off ourCarriedItem,
+--- which would answer nil for the rest of the job.
+local function ownedIdFor(task, part)
+    local id = part:getId()
+    return task.ours[id] or (task.dropped and task.dropped[id]) or nil
+end
+
 --- The best item the character is carrying for an empty part slot.
 ---
 --- "Best" is highest condition, which is what a player picking from the
@@ -351,6 +382,30 @@ local function bestItemFor(part, typeToItem)
         end
     end
     return best
+end
+
+--- The very item this job took off this slot, if it is still to hand.
+---
+--- Looked up in the same map bestItemFor uses, so it finds the part on the
+--- floor where a defer put it down as well as one in a pocket. Broken is
+--- treated as gone: the game will not fit it and there is nothing to be
+--- gained by holding the slot open for it.
+local function ourItemFor(task, part, typeToItem)
+    local wanted = ownedIdFor(task, part)
+    if not wanted then return nil end
+
+    local types = part:getItemType()
+    if not types or types:isEmpty() then return nil end
+
+    for i = 0, types:size() - 1 do
+        local matching = typeToItem[types:get(i)]
+        if matching then
+            for _, item in ipairs(matching) do
+                if item:getID() == wanted and not item:isBroken() then return item end
+            end
+        end
+    end
+    return nil
 end
 
 --- Why this part could not be put back on, or nil when it could.
@@ -409,12 +464,20 @@ end
 --- once a part is off, putting it back is an obligation, not a choice, and
 --- it is retried until it goes on or breaks trying. Leaving it in the
 --- inventory forever is the worse outcome by a long way.
-local function canPutOn(player, vehicle, part, typeToItem)
+---
+--- The car's own part goes back on the car. bestItemFor ranks by condition
+--- over the inventory and every open container, so on its own it bolts the
+--- player's 90% spare onto the training wreck and leaves the wreck's own
+--- 20% part in the bag, with the slot filled so nothing ever offers it
+--- again and not a word said. What this job took off this slot goes back on
+--- it, and bestItemFor is only the fallback for when ours is gone or broken.
+local function canPutOn(task, part, typeToItem)
+    local player, vehicle = task.player, task.vehicle
     if part:getInventoryItem() then return nil end
     if not part:getTable("install") then return nil end
     if unreachableOnWreck(vehicle, part) then return nil end
     if not vehicle:canInstallPart(player, part) then return nil end
-    return bestItemFor(part, typeToItem)
+    return ourItemFor(task, part, typeToItem) or bestItemFor(part, typeToItem)
 end
 
 ---------------------------------------------------------------------
@@ -461,6 +524,21 @@ local function cycleOf(task, id)
     return entry
 end
 
+--- One part of the car, counted once.
+---
+--- task.done used to count actions: an uninstall, an install, a drop and a
+--- clear each added one. So "Parts at most" stopped at roughly a third of
+--- the number the player set, and the closing line overstated the work by
+--- the same factor. A part is done when it has been off and back on - both
+--- payouts - or when the job put it on the ground for good. A part parked on
+--- the floor while its corner is worked is neither: it counts when it goes
+--- back on.
+local function countPart(task, id)
+    if task.counted[id] then return end
+    task.counted[id] = true
+    task.done = task.done + 1
+end
+
 --- Would taking this part off pay any XP?
 local function payingUninstall(task, part)
     if cycleOf(task, part:getId()).off then return false end
@@ -488,7 +566,7 @@ end
 --- containers, so a part already lying on the ground would be picked as
 --- something to drop and the job would drop it forever.
 local function ourCarriedItem(task, part)
-    local wanted = task.ours[part:getId()]
+    local wanted = ownedIdFor(task, part)
     if not wanted then return nil end
 
     local types = part:getItemType()
@@ -544,6 +622,30 @@ end
 --- to earn. Only `install` asks this: taking a part off never blocks
 --- anything, and neither does dropping one.
 
+--- Has the job stopped trying on this part for good?
+---
+--- Both of these last for the rest of the run. Out of turns means the whole
+--- car has overtaken it, and unwalkable means the pathfinder gave up on the
+--- square it has to be worked from. Neither is undone by anything except a
+--- successful attempt, which clears the count that caused it.
+local function givenUpOn(task, part)
+    local id = part:getId()
+    if (task.strikes[id] or 0) >= RETRY_LIMIT then return true end
+    if (task.unreachable[id] or 0) >= UNREACHABLE then return true end
+    return false
+end
+
+--- Would this part be workable if the thing standing in front of it came
+--- off? canTakeOff without the one test that is failing right now, which is
+--- the game refusing it because the blocker is still bolted on.
+local function workableOnceCleared(task, part, typeToItem, tagToItem)
+    if givenUpOn(task, part) then return false end
+    if unreachableOnWreck(task.vehicle, part) then return false end
+    if not goodEnough(task.player, part, "uninstall") then return false end
+    if installBlocker(task.player, part, typeToItem, tagToItem) then return false end
+    return true
+end
+
 --- Is this part actually going to be worked on, as opposed to merely
 --- unfinished?
 ---
@@ -578,15 +680,14 @@ local function stillHasWork(task, part, typeToItem, tagToItem)
 
     -- Out of turns, or unwalkable. The rest of the car has overtaken it,
     -- and nothing should be held hostage waiting for it.
-    if (task.strikes[id] or 0) >= RETRY_LIMIT then return false end
-    if (task.unreachable[id] or 0) >= UNREACHABLE then return false end
+    if givenUpOn(task, part) then return false end
 
     if part:getInventoryItem() then
         return payingUninstall(task, part)
                 and canTakeOff(task.player, task.vehicle, part, typeToItem, tagToItem)
     end
 
-    local item = canPutOn(task.player, task.vehicle, part, typeToItem)
+    local item = canPutOn(task, part, typeToItem)
     return item ~= nil and payingInstall(task, part, item)
 end
 
@@ -662,7 +763,7 @@ local function dryRun(player, vehicle)
     -- yet, so it can never propose dropping something.
     return {
         player = player, vehicle = vehicle,
-        cycle = {}, strikes = {}, ours = {}, unreachable = {},
+        cycle = {}, strikes = {}, ours = {}, dropped = {}, unreachable = {},
     }
 end
 
@@ -750,14 +851,18 @@ local PRIORITY = { drop = 1, install = 2, uninstall = 3, clear = 4 }
 --- Everything that could be done right now, in the order it should be
 --- tried.
 ---
---- Three keys, in this order:
+--- Five keys, in this order:
 ---
----   1. the part that just failed, if any - the character stays on it
+---   1. dropping, ahead of everything including the retry pin - weight is
+---      the one thing this job has no other defence against,
+---   2. a corner with a part of ours on the ground at it, because walking
+---      away from that floor square loses the part for good,
+---   3. the part that just failed, if any - the character stays on it
 ---      until it gives rather than wandering off round the car;
----   2. fewest failures, so once a part has had its RETRY_LIMIT turns the
+---   4. fewest failures, so once a part has had its RETRY_LIMIT turns the
 ---      rest of the car goes ahead of it - it is never struck off, only
 ---      overtaken, and comes back round when the others catch up;
----   3. PRIORITY, then working order.
+---   5. PRIORITY, then working order.
 ---
 --- Install beating uninstall at (3) is what stops the character ending up
 --- carrying the whole car: the part that just came off has no failures
@@ -788,7 +893,7 @@ local function candidates(task)
                 add({ part = part, action = "uninstall", order = index })
             end
         else
-            local item = reachable and canPutOn(player, vehicle, part, typeToItem) or nil
+            local item = reachable and canPutOn(task, part, typeToItem) or nil
             if item and payingInstall(task, part, item) then
                 -- Still a candidate, only a late one: see wouldBlockWork.
                 -- Deferring rather than writing it off matters - if the
@@ -809,10 +914,18 @@ local function candidates(task)
                 -- back up when the install comes due. Nothing drops twice
                 -- either: ourCarriedItem only ever looks in the inventory,
                 -- so a part already on the ground is not a candidate.
+                --
+                -- The loot window is also why the sort below pins the
+                -- character to the corner until the part is back on: the
+                -- floor square drops out of that window the moment it walks
+                -- off, and the part stops being offered by anything.
                 if deferred then
                     local held = ourCarriedItem(task, part)
                     if held and not held:isFavorite() then
-                        add({ part = part, item = held, action = "drop", order = index })
+                        -- Parked, not finished with: it is coming back on
+                        -- this corner, so it must not count as a part done.
+                        add({ part = part, item = held, action = "drop",
+                              order = index, park = true })
                     end
                 end
 
@@ -853,9 +966,20 @@ local function candidates(task)
 
     -- Only worth working out when there is nothing better to do: a spent
     -- part that is standing in the way of one that can still pay.
+    --
+    -- The rule, and it is the other half of stillHasWork: a corner is
+    -- finished the moment the job gives up on what the tyre was blocking.
+    -- stillHasWork already stops deferring the tyre's install against a
+    -- brake that is out of retries or unwalkable, so the tyre goes back on -
+    -- and this branch used to take that same tyre straight off again for a
+    -- brake that was never going to be touched, earn nothing for it, and
+    -- leave the wheel in the mud when deadWeight dropped it. So clearing is
+    -- only ever done for a part that would actually be worked on once the
+    -- way is open. If it would not, the tyre goes on and stays on.
     if #out == 0 then
         for index, part in ipairs(sortedParts(vehicle)) do
             if part:getInventoryItem() and payingUninstall(task, part)
+                    and workableOnceCleared(task, part, typeToItem, tagToItem)
                     and not vehicle:canUninstallPart(player, part) then
                 for _, blocker in ipairs(blockersOf(part, "uninstall")) do
                     if blocker:getInventoryItem()
@@ -870,6 +994,39 @@ local function candidates(task)
         end
     end
 
+    -- Corners where this job has a part of its own lying on the ground.
+    --
+    -- A dropped part is only visible to bestItemFor while the character is
+    -- near the square it was put down on - VehicleUtils.getItems reads the
+    -- loot window, floor included, and that square leaves the window as soon
+    -- as the character walks off. One bad roll used to be enough to send it
+    -- to a 0-strike part at the other end of the car, and the tyre on the
+    -- front-left floor then produced no candidate of any kind ever again.
+    --
+    -- So work at that corner comes before work anywhere else, overriding
+    -- strikes, until the part is back on the car or given up on. The brake
+    -- and the suspension it was dropped for are at the same corner, which is
+    -- precisely the work that has to be finished before the refit. This only
+    -- reorders candidates, it never removes any, so a corner that runs out
+    -- of things to do cannot hold the job.
+    local anchoredParts, anchoredCorners = {}, {}
+    for id in pairs(task.dropped or {}) do
+        local dropped = vehicle:getPartById(id)
+        if dropped and not dropped:getInventoryItem()
+                and not givenUpOn(task, dropped) then
+            anchoredParts[id] = true
+            local corner = cornerOf(id)
+            if corner then anchoredCorners[corner] = true end
+        end
+    end
+
+    for _, entry in ipairs(out) do
+        local id = entry.part:getId()
+        local corner = cornerOf(id)
+        entry.anchored = anchoredParts[id] == true
+                or (corner ~= nil and anchoredCorners[corner] == true)
+    end
+
     -- The part that just lost its roll goes straight back to the front, so
     -- the character keeps at the same one until it gives - which is what
     -- was asked for, and is how a person works: you do not walk to the
@@ -882,6 +1039,22 @@ local function candidates(task)
     local retry = task.retry
 
     table.sort(out, function(a, b)
+        -- Putting something down comes before going back to the part that
+        -- just lost its roll. It used to come after, so a character already
+        -- over its carry limit rode a spent door round for up to
+        -- RETRY_LIMIT more attempts - and this job sets ignoreDamage, so
+        -- shedding weight is the only thing standing between the muscle
+        -- strain and a dead character. Still bounded by the strike count,
+        -- so a drop the game will not take cannot own the job forever.
+        local da = (a.action == "drop" and a.strikes < RETRY_LIMIT) and 0 or 1
+        local db = (b.action == "drop" and b.strikes < RETRY_LIMIT) and 0 or 1
+        if da ~= db then return da < db end
+
+        -- Stay at the corner while something of ours is on the ground there.
+        local ca = a.anchored and 0 or 1
+        local cb = b.anchored and 0 or 1
+        if ca ~= cb then return ca < cb end
+
         local ra = (retry and a.part:getId() == retry) and 0 or 1
         local rb = (retry and b.part:getId() == retry) and 0 or 1
         if ra ~= rb then return ra < rb end
@@ -973,6 +1146,8 @@ local function workNext(task)
 
     task.current = choice.part:getId()
     task.action  = choice.action
+    -- A drop that is only putting the part down for the length of a corner.
+    task.parking = choice.park == true
 
     -- Read before the part comes off, because afterwards the slot is empty
     -- and there is no way back to which item it was. This is what lets the
@@ -1188,6 +1363,62 @@ local function carriedParts(task)
     return out
 end
 
+--- Parts this job put on the ground and never got back on the car.
+---
+--- Dropping is often the job working as intended - a spent part is not
+--- carried round the rest of the car - but the ending said nothing whatever
+--- about it, so a brake put down for a worn out wrench and a tyre taken off
+--- by clear were simply gone as far as the player could tell.
+---
+--- Ours by item id, so a spare the player left lying there is never claimed.
+--- Anything picked back up and still being carried belongs to the sweep and
+--- to strandedParts, not here.
+local function droppedParts(task)
+    local out = {}
+    for i = 0, task.vehicle:getPartCount() - 1 do
+        local part = task.vehicle:getPartByIndex(i)
+        local id = part:getId()
+        if task.dropped[id] and not part:getInventoryItem()
+                and not ourCarriedItem(task, part) then
+            table.insert(out, id)
+        end
+    end
+    return out
+end
+
+--- One round of putting the car down, for an ending that gets no second
+--- chance.
+---
+--- finish() is the thorough version - queue the drops, wait, look again -
+--- and it is only reachable from think(). A safety stop is not: a zombie,
+--- ESC, a movement key or a stall goes through AA.checkSafety straight into
+--- AA.stop, the task is gone, think() never runs again, and the player was
+--- handed back a character at three times their carry weight at the exact
+--- moment something turned up to run from.
+---
+--- So this is hung on the task as onStop. AA.stop clears the action queue
+--- *before* calling it, deliberately, so what is queued here survives.
+--- Favourites are left alone, the same rule the sweep follows.
+local function dropEverythingCarried(task)
+    local player = task.player
+    if not player then return end
+
+    local dropped = 0
+    for _, entry in ipairs(carriedParts(task)) do
+        if not entry.item:isFavorite() then
+            local ok = pcall(function()
+                ISInventoryPaneContextMenu.dropItem(entry.item, player:getPlayerNum())
+            end)
+            if ok then dropped = dropped + 1 end
+        end
+    end
+
+    if dropped > 0 then
+        print("[AutoAll] mechanics stopped holding " .. tostring(dropped)
+                .. " part(s) - queued them onto the floor")
+    end
+end
+
 -- Rounds of dropping before the job stops caring. Three is plenty: a drop
 -- that is going to work works first time.
 local SWEEP_ATTEMPTS = 3
@@ -1212,7 +1443,23 @@ local function finish(task, text, bad)
     -- is being carried any more, so a report built then would come out
     -- empty and cheerful with four parts lying in the mud.
     if not task.ending then
-        task.ending = { text = text, bad = bad, stranded = strandedParts(task) }
+        task.ending = {
+            text = text, bad = bad,
+            stranded = strandedParts(task),
+            dropped  = droppedParts(task),
+        }
+    end
+
+    -- One round of drops has to be given time to land before the next round
+    -- looks. A drop is an ISInventoryTransferAction like any other, so on a
+    -- client the answer comes back from the server a moment later - the same
+    -- reason think() waits SETTLE_MS before scoring a part. Without this all
+    -- three rounds burn inside a second and the job reports the parts it has
+    -- just dropped as parts that could not be dropped.
+    if AA.isQueueBusy(player) then return end
+    if task.sweepUntil then
+        if AA.now() < task.sweepUntil then return end
+        task.sweepUntil = nil
     end
 
     -- Favourites are the player's business, not ours. They are counted
@@ -1234,14 +1481,19 @@ local function finish(task, text, bad)
         for _, entry in ipairs(carried) do
             ISInventoryPaneContextMenu.dropItem(entry.item, player:getPlayerNum())
         end
+        task.sweepUntil = AA.now() + SETTLE_MS
         return
     end
 
     local stranded = task.ending.stranded
+    local dropped  = task.ending.dropped
     print("[AutoAll] mechanics finished after " .. tostring(task.done)
             .. " parts: " .. tostring(task.ending.text))
     for _, entry in ipairs(stranded) do
         print("[AutoAll]   " .. entry.id .. " is still off - " .. entry.why)
+    end
+    for _, id in ipairs(dropped) do
+        print("[AutoAll]   " .. id .. " is on the ground beside the car")
     end
     if keeping > 0 then
         print("[AutoAll]   " .. tostring(keeping) .. " part(s) kept - marked favourite")
@@ -1253,11 +1505,19 @@ local function finish(task, text, bad)
     local ending = task.ending
     task.ending = nil
 
+    -- Named, not counted. "Parts done: N" with a wheel lying in the mud is
+    -- the report the player could not act on, and the part ids are what the
+    -- console lines above use too.
+    local message, asBad = ending.text, ending.bad
     if #stranded > 0 then
-        AA.stop(player, getText("UI_AA_mech_left_off", task.done, #stranded), true)
-    else
-        AA.stop(player, ending.text, ending.bad)
+        message, asBad = getText("UI_AA_mech_left_off", task.done, #stranded), true
     end
+    if #dropped > 0 then
+        message = message .. " "
+                .. getText("UI_AA_mech_on_ground", table.concat(dropped, ", "))
+    end
+
+    AA.stop(player, message, asBad)
 end
 
 local function think(task)
@@ -1329,8 +1589,22 @@ local function think(task)
             end
         end
 
+        -- A part that was actually reached starts its walk count over.
+        -- UNREACHABLE is meant to describe a car parked hard against a
+        -- wall, and it is only two: without a reset, a zombie standing on
+        -- the goal square once and a door in the way twenty parts later
+        -- add up to a permanently unreachable part, and the car ends a
+        -- wheel down with the job reporting that it finished.
+        --
+        -- Reaching it is what counts, not winning the roll. sawBusy means
+        -- the action ran, so the walk got there. A drop proves nothing
+        -- either way: it happens where the character already is.
+        if task.action ~= "drop" and task.pathFailedAt ~= task.current
+                and (moved or task.sawBusy) then
+            task.unreachable[task.current] = nil
+        end
+
         if moved then
-            task.done = task.done + 1
             task.strikes[task.current] = nil
             task.sinceProgress = 0
             task.sinceMoved    = 0
@@ -1341,8 +1615,19 @@ local function think(task)
             -- already dropped is not being carried at all.
             if task.action == "uninstall" or task.action == "clear" then
                 task.ours[task.current] = task.pendingItem
-            else
+                task.dropped[task.current] = nil
+            elseif task.action == "drop" then
+                -- On the floor is not gone. Ownership moves across rather
+                -- than being cleared, so a part that comes back - an install
+                -- picks it up and the roll fails - is still recognised as
+                -- ours, and so is a part still lying there when the job ends.
+                task.dropped[task.current] = task.ours[task.current]
+                        or task.dropped[task.current] or task.pendingItem
                 task.ours[task.current] = nil
+            else
+                -- Back on the car. Neither carried nor on the ground.
+                task.ours[task.current] = nil
+                task.dropped[task.current] = nil
             end
 
             -- The half of the cycle that just paid out. Recorded per part
@@ -1358,6 +1643,14 @@ local function think(task)
                 -- put back on, or it would block the same part again.
                 cycle.off = true
                 cycle.on  = true
+            end
+
+            -- Parts, not actions. Both halves of the cycle, or a part the
+            -- job has finished with and left on the ground.
+            if cycle.off and cycle.on then
+                countPart(task, task.current)
+            elseif task.action == "drop" and not task.parking then
+                countPart(task, task.current)
             end
         else
             local failures = (task.strikes[task.current] or 0) + 1
@@ -1463,7 +1756,8 @@ function Mech.start(player, vehicle)
         kind      = "mechanics",
         player    = player,
         vehicle   = vehicle,
-        done      = 0,
+        done      = 0,       -- parts finished, not actions taken
+        counted   = {},      -- [partId] = counted towards done already
         -- [partId] = { off = paid for coming off, on = paid for going on }
         cycle     = {},
         strikes   = {},     -- [partId] = failures in a row, only ever a sort key
@@ -1472,6 +1766,11 @@ function Mech.start(player, vehicle)
         -- only items the closing sweep is allowed to drop, so a spare the
         -- player brought along is never thrown away.
         ours      = {},
+        -- [partId] = id of the item this job put on the ground for it, and
+        -- has not got back on the car. Ownership survives a round trip
+        -- through the floor: a deferred part is dropped at the corner and
+        -- picked up again when its install comes due.
+        dropped   = {},
         -- [partId] = failed walks. At UNREACHABLE the part is left alone;
         -- the game says it is legal, the pathfinder says otherwise.
         unreachable = {},
@@ -1482,6 +1781,10 @@ function Mech.start(player, vehicle)
         current   = nil,
         action    = nil,
         think     = think,
+        -- A safety stop never reaches finish(), so the closing sweep would
+        -- never run and the character would be left holding the car. See
+        -- dropEverythingCarried.
+        onStop    = dropEverythingCarried,
         -- The queue is this job's whole heartbeat: think() does nothing
         -- while it is busy. A vanilla ISPathFindAction is built with
         -- maxTime = -1 and an isValid() that is hardcoded true, so a path
