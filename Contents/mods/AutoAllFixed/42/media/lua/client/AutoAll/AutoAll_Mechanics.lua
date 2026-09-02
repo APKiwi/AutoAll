@@ -273,6 +273,23 @@ local ORDER = {
 local RANK = {}
 for index, id in ipairs(ORDER) do RANK[id] = index end
 
+-- The corners of the car, as they are spelled in a part id. A knot of three
+-- parts each - tyre, brake, suspension - that can only be worked in one
+-- order, so the job has to be able to ask "is this the corner I am standing
+-- at" without a table of relationships that would have to be kept in step
+-- with ORDER.
+local CORNERS = {
+    "FrontLeft", "FrontRight", "MiddleLeft", "MiddleRight", "RearLeft", "RearRight",
+}
+
+--- The corner a part belongs to, or nil for one that is not at a corner.
+local function cornerOf(id)
+    for _, name in ipairs(CORNERS) do
+        if id:find(name, 1, true) then return name end
+    end
+    return nil
+end
+
 --- Every part of the vehicle, in working order. Anything not on the list
 --- above - modded parts, trailers, the engine - goes last rather than
 --- being dropped, so a modded car still gets worked on.
@@ -819,16 +836,18 @@ local PRIORITY = { drop = 1, install = 2, uninstall = 3, clear = 4 }
 --- Everything that could be done right now, in the order it should be
 --- tried.
 ---
---- Four keys, in this order:
+--- Five keys, in this order:
 ---
 ---   1. dropping, ahead of everything including the retry pin - weight is
 ---      the one thing this job has no other defence against;
----   2. the part that just failed, if any - the character stays on it
+---   2. a corner with a part of ours on the ground at it, because walking
+---      away from that floor square loses the part for good;
+---   3. the part that just failed, if any - the character stays on it
 ---      until it gives rather than wandering off round the car;
----   3. fewest failures, so once a part has had its RETRY_LIMIT turns the
+---   4. fewest failures, so once a part has had its RETRY_LIMIT turns the
 ---      rest of the car goes ahead of it - it is never struck off, only
 ---      overtaken, and comes back round when the others catch up;
----   4. PRIORITY, then working order.
+---   5. PRIORITY, then working order.
 ---
 --- Install beating uninstall at (3) is what stops the character ending up
 --- carrying the whole car: the part that just came off has no failures
@@ -880,6 +899,11 @@ local function candidates(task)
                 -- back up when the install comes due. Nothing drops twice
                 -- either: ourCarriedItem only ever looks in the inventory,
                 -- so a part already on the ground is not a candidate.
+                --
+                -- The loot window is also why the sort below pins the
+                -- character to the corner until the part is back on: the
+                -- floor square drops out of that window the moment it walks
+                -- off, and the part stops being offered by anything.
                 if deferred then
                     local held = ourCarriedItem(task, part)
                     if held and not held:isFavorite() then
@@ -952,6 +976,39 @@ local function candidates(task)
         end
     end
 
+    -- Corners where this job has a part of its own lying on the ground.
+    --
+    -- A dropped part is only visible to bestItemFor while the character is
+    -- near the square it was put down on - VehicleUtils.getItems reads the
+    -- loot window, floor included, and that square leaves the window as soon
+    -- as the character walks off. One bad roll used to be enough to send it
+    -- to a 0-strike part at the other end of the car, and the tyre on the
+    -- front-left floor then produced no candidate of any kind ever again.
+    --
+    -- So work at that corner comes before work anywhere else, overriding
+    -- strikes, until the part is back on the car or given up on. The brake
+    -- and the suspension it was dropped for are at the same corner, which is
+    -- precisely the work that has to be finished before the refit. This only
+    -- reorders candidates, it never removes any, so a corner that runs out
+    -- of things to do cannot hold the job.
+    local anchoredParts, anchoredCorners = {}, {}
+    for id in pairs(task.dropped or {}) do
+        local dropped = vehicle:getPartById(id)
+        if dropped and not dropped:getInventoryItem()
+                and not givenUpOn(task, dropped) then
+            anchoredParts[id] = true
+            local corner = cornerOf(id)
+            if corner then anchoredCorners[corner] = true end
+        end
+    end
+
+    for _, entry in ipairs(out) do
+        local id = entry.part:getId()
+        local corner = cornerOf(id)
+        entry.anchored = anchoredParts[id] == true
+                or (corner ~= nil and anchoredCorners[corner] == true)
+    end
+
     -- The part that just lost its roll goes straight back to the front, so
     -- the character keeps at the same one until it gives - which is what
     -- was asked for, and is how a person works: you do not walk to the
@@ -974,6 +1031,11 @@ local function candidates(task)
         local da = (a.action == "drop" and a.strikes < RETRY_LIMIT) and 0 or 1
         local db = (b.action == "drop" and b.strikes < RETRY_LIMIT) and 0 or 1
         if da ~= db then return da < db end
+
+        -- Stay at the corner while something of ours is on the ground there.
+        local ca = a.anchored and 0 or 1
+        local cb = b.anchored and 0 or 1
+        if ca ~= cb then return ca < cb end
 
         local ra = (retry and a.part:getId() == retry) and 0 or 1
         local rb = (retry and b.part:getId() == retry) and 0 or 1
