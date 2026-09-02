@@ -151,21 +151,38 @@ end
 ---------------------------------------------------------------------
 
 --- How far out to look for cupboards, counters and fridges, in tiles.
---- One, because that is the reach the base game gives a container:
---- ISObjectClickHandler refuses one that is more than a tile away, on
---- another floor, or with something solid in between, and only walks you
---- over when you click it yourself. Nothing here queues that walk.
-local REACH = 1
+--- Two: a kitchen is a counter on one side and a fridge on the other, and
+--- one tile left the far one out. Wider than the base game's own click
+--- reach, so the wall and lock tests below carry the weight.
+local REACH = 2
 
---- Vanilla's own container reach test, from ISObjectClickHandler: same
---- floor, one tile at most, and nothing solid between the two squares.
---- isBlockedTo is what stops food being pulled through a wall.
+--- Vanilla's wall test, from ISObjectClickHandler. isBlockedTo only knows
+--- about the square next to you, so anything further out is reached one
+--- hop at a time through the squares between, the way you would walk it.
+--- Same floor only. Nothing here queues a walk.
+local function hopBlocked(from, to)
+    local ok, blocked = pcall(function() return from:isBlockedTo(to) end)
+    return (not ok) or blocked == true
+end
+
 local function squareInReach(from, sq)
     if sq:getZ() ~= from:getZ() then return false end
     if sq == from then return true end
-    local ok, blocked = pcall(function() return from:isBlockedTo(sq) end)
-    if not ok then return false end
-    return blocked ~= true
+    local cell = getCell()
+    if not cell then return false end
+    local x, y, z = from:getX(), from:getY(), from:getZ()
+    local tx, ty = sq:getX(), sq:getY()
+    local here = from
+    while here ~= sq do
+        local dx = tx - x
+        local dy = ty - y
+        x = x + (dx > 0 and 1 or (dx < 0 and -1 or 0))
+        y = y + (dy > 0 and 1 or (dy < 0 and -1 or 0))
+        local nextSq = cell:getGridSquare(x, y, z)
+        if not nextSq or hopBlocked(here, nextSq) then return false end
+        here = nextSq
+    end
+    return true
 end
 
 --- A crate the player has locked to somebody else. Vanilla's
@@ -191,9 +208,8 @@ end
 --- only one of them was in the window.
 ---
 --- So the squares around the character are swept as well, but only the
---- ones the base game would let you open a container on: adjacent, same
---- floor, nothing solid in between, and never a crate locked to the
---- character. Without those tests the sweep read straight through walls
+--- ones you could walk to and open: two tiles, same floor, nothing solid
+--- in between on the way, and never a crate locked to the character. Without those tests the sweep read straight through walls
 --- and into locked player storage, and nothing downstream would have
 --- caught it - ISInventoryTransferAction:isValid has no range check, so
 --- any container handed to it is transferred from.
