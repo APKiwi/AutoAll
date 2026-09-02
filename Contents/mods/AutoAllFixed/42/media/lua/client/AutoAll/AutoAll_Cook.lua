@@ -345,8 +345,14 @@ function Cook.findBaseRecipe(player, base, recipeId, containerList)
 end
 
 --- True when this recipe wants water and the pot does not have enough.
+---
+--- haveExtraItems is the same first clause getItemsCanBeUse uses: once
+--- there is an ingredient in the dish the water gate is skipped
+--- altogether, so a half made soup is on the ordinary menu already and
+--- must not be offered a second time down this path.
 local function needsWater(recipe, base)
     local ok, short = pcall(function()
+        if base:haveExtraItems() then return false end
         return recipe:getMinimumWater() > 0 and not recipe:hasMinimumWater(base)
     end)
     return ok and short == true
