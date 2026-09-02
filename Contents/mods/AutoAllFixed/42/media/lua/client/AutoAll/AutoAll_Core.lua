@@ -765,8 +765,19 @@ end
 function AA.batchFeedback(task, queued, confirmed)
     if not isClient() then return end
 
-    if queued > 0 and confirmed >= queued then
-        task.batchSize = math.min((task.batchSize or 1) * 2, AA.BATCH_MAX_CLIENT)
+    local size = task.batchSize or 1
+
+    -- The round has to have actually USED the batch it was given. Comparing
+    -- confirmed against queued alone doubled the size on a round that had
+    -- only one candidate to queue, so three one-item rounds took the batch
+    -- from 1 to 8 without ever asking the server to handle more than one
+    -- craft, and then eight landed in a single tick against an inventory
+    -- that had never been tested at that rate. That is precisely the case
+    -- BATCH_MAX_CLIENT rations.
+    --
+    -- queued >= size implies queued > 0, since size is never below 1.
+    if queued >= size and confirmed >= queued then
+        task.batchSize = math.min(size * 2, AA.BATCH_MAX_CLIENT)
     else
         task.batchSize = 1
     end
