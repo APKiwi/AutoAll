@@ -19,6 +19,7 @@
 ]]
 
 require "AutoAll/AutoAll_Core"
+require "AutoAll/AutoAll_Water"
 
 AutoAll = AutoAll or {}
 local AA = AutoAll
@@ -272,6 +273,170 @@ function Cook.recipeName(recipe)
     local name = getText(key)
     if name == key then name = recipe:getUntranslatedName() end
     return name
+end
+
+---------------------------------------------------------------------
+-- water
+--
+-- An evolved recipe that wants water refuses an empty pot outright, so
+-- Soup and Stew are not on the menu at all until the pot is filled.
+-- Three vanilla methods, read off the bytecode, say why:
+--
+--   EvolvedRecipe.hasMinimumWater(base)
+--       c = base:getFluidContainer()
+--       return c ~= nil and c:isAllCategory(Water)
+--              and c:getFilledRatio() >= getMinimumWater()
+--
+--   EvolvedRecipe.getItemsCanBeUse(...)
+--       returns an EMPTY list when getMinimumWater() > 0 and
+--       hasMinimumWater(base) is false, before it looks at a single
+--       ingredient
+--
+--   RecipeManager.getEvolvedRecipe(base, player, containers, true)
+--       drops every recipe whose usable list came back empty
+--
+-- So MinimumWater is a RATIO of the container rather than a number of
+-- litres, which is why a 0.2 litre mug asks for 1.0 while a 1.5 litre
+-- pot asks for 0.9. The fourth argument is the way back in: `false`
+-- skips the getItemsCanBeUse call entirely and matches on the base item
+-- type alone, so an empty pot still answers Soup and Stew.
+--
+-- Nothing here reimplements the water test. The recipe is asked.
+---------------------------------------------------------------------
+
+--- How far out to look for a sink, a barrel or a well, in tiles.
+--- Four rather than the container sweep's two: the character walks to
+--- the water on its own, so this is "across the kitchen" rather than
+--- "without moving". Same hop test, so a wall still stops it.
+local WATER_REACH = 4
+
+-- How many rounds the filling phase may spend. One fetches the pot out
+-- of a cupboard, one fills it, and the rest are there for a server that
+-- dropped an action.
+local FILL_ROUNDS = 4
+
+-- Think ticks to wait for the water to show up in the pot after the fill
+-- action has ended. A timed action finishing on the client is not the
+-- server having applied it, so the amount is what is waited on. At 250 ms
+-- a tick this is two seconds.
+local FILL_SETTLE = 8
+
+--- Every evolved recipe this base item could ever run, water or not.
+local function recipesForBase(player, base, containerList)
+    local ok, recipes = pcall(function()
+        return RecipeManager.getEvolvedRecipe(base, player, containerList, false)
+    end)
+    if not ok then return nil end
+    return recipes
+end
+
+--- The recipe with this id on this base item, whatever state its water
+--- is in. Cook.findRecipe cannot answer that: it asks the filtered
+--- lookup, which is the one that refuses an under-filled pot.
+function Cook.findBaseRecipe(player, base, recipeId, containerList)
+    if not base then return nil end
+    local recipes = recipesForBase(player, base, containerList)
+    if not recipes then return nil end
+    for i = 0, recipes:size() - 1 do
+        local recipe = recipes:get(i)
+        if recipe:getUntranslatedName() == recipeId then return recipe end
+    end
+    return nil
+end
+
+--- True when this recipe wants water and the pot does not have enough.
+local function needsWater(recipe, base)
+    local ok, short = pcall(function()
+        return recipe:getMinimumWater() > 0 and not recipe:hasMinimumWater(base)
+    end)
+    return ok and short == true
+end
+
+--- Litres still missing before the recipe would accept the pot.
+local function waterShortfall(base, recipe)
+    local ok, need = pcall(function()
+        local container = base:getFluidContainer()
+        if not container then return 0 end
+        return container:getCapacity() * recipe:getMinimumWater() - container:getAmount()
+    end)
+    if ok and type(need) == "number" and need > 0 then return need end
+    return 0
+end
+
+--- The recipes this base item is only short of water for.
+---
+--- Generic on purpose: anything with a FluidContainer that is the base
+--- item of a MinimumWater recipe goes down this path, so a pot, a forged
+--- pot, either bucket and every mug and teacup are handled by the same
+--- code with nothing named in it.
+function Cook.waterRecipes(player, base, containerList)
+    local out = {}
+    if not base or not AA.opt("cookFillWater") then return out end
+    if base:isNoRecipes(player) then return out end
+
+    -- Something other than water already in the pot cannot be fixed by
+    -- adding more water: hasMinimumWater wants every fluid in it to be
+    -- in the Water category. isWaterOnlySource is vanilla's own test for
+    -- exactly that, and an empty container passes by being empty.
+    local ok, fillable = pcall(function()
+        local container = base:getFluidContainer()
+        if not container then return false end
+        return container:isEmpty() or base:isWaterOnlySource()
+    end)
+    if not ok or fillable ~= true then return out end
+
+    local recipes = recipesForBase(player, base, containerList)
+    if not recipes then return out end
+
+    for i = 0, recipes:size() - 1 do
+        local recipe = recipes:get(i)
+        if needsWater(recipe, base) then table.insert(out, recipe) end
+    end
+    return out
+end
+
+--- The best water within WATER_REACH, or nil. Returns the source and
+--- whether its water is tainted.
+---
+--- Usable means all four of: the character could walk to it, the game
+--- calls it a water fixture, what is in it is actually water rather than
+--- petrol or paint, and there is at least `need` litres of it. Clean
+--- water beats tainted, and among equals the shorter walk wins.
+function Cook.findWaterSource(player, need)
+    local square = player:getSquare()
+    local cell = getCell()
+    if not square or not cell then return nil, false end
+
+    local x, y, z = square:getX(), square:getY(), square:getZ()
+    local best, bestScore, bestTainted = nil, nil, false
+
+    for dx = -WATER_REACH, WATER_REACH do
+        for dy = -WATER_REACH, WATER_REACH do
+            local sq = cell:getGridSquare(x + dx, y + dy, z)
+            if sq and squareInReach(square, sq) then
+                local objects = sq:getObjects()
+                for i = 0, objects:size() - 1 do
+                    local object = objects:get(i)
+                    -- Plumbing, not a bottle somebody dropped on the
+                    -- floor. A world inventory item carries a fluid
+                    -- container like any other, and draining the water
+                    -- bottle at your feet to fill a mug is not what the
+                    -- option offered.
+                    if not instanceof(object, "IsoWorldInventoryObject")
+                            and AA.Water.isFixture(object) and AA.Water.hasWater(object)
+                            and AA.Water.amountOf(object) >= need then
+                        local tainted = AA.Water.isTainted(object)
+                        local score = (tainted and 1000 or 0) + math.abs(dx) + math.abs(dy)
+                        if bestScore == nil or score < bestScore then
+                            best, bestScore, bestTainted = object, score, tainted
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return best, bestTainted
 end
 
 ---------------------------------------------------------------------
@@ -695,6 +860,137 @@ local function finish(task, text)
     task.phase    = "returning"
 end
 
+---------------------------------------------------------------------
+-- filling the pot
+--
+-- Runs before the cooking phase when the recipe wants water the pot does
+-- not have. One thing per round, and a round ends when the action queue
+-- drains:
+--
+--   pot not in hand -> fetch it out of the cupboard
+--   pot in hand     -> walk to the source and queue vanilla's fill
+--   water landed    -> hand over to the cooking phase, unchanged
+--
+-- Both waits read the result rather than trusting the action that ended.
+-- On a server a transfer completes on the client well before it is
+-- confirmed, so "the fill finished" is not "the pot is full" - the
+-- amount in the pot is what decides, and the same goes for the pot
+-- arriving in the inventory.
+---------------------------------------------------------------------
+
+local function stopFilling(task, why)
+    print("[AutoAll] cook stopping: reason=" .. tostring(why))
+    AA.stop(task.player, getText("UI_AA_cook_nowater"), true)
+end
+
+--- The pot again, by id. On a server the instance is replaced as a
+--- transfer settles, so the object the menu handed us is not the object
+--- the inventory holds a moment later.
+local function currentBase(task)
+    local base = task.base
+    if not base then return nil end
+    local ok, found = pcall(function()
+        return task.player:getInventory():getItemById(base:getID())
+    end)
+    if ok and found then return found end
+    if base:getContainer() then return base end
+    return nil
+end
+
+local function fillThink(task)
+    local player = task.player
+
+    local base = currentBase(task)
+    if not base then
+        stopFilling(task, "the pot is gone")
+        return
+    end
+    task.base = base
+
+    local recipe = Cook.findBaseRecipe(player, base, task.recipeId, nil)
+    if not recipe then
+        stopFilling(task, "recipe " .. tostring(task.recipeId) .. " is gone")
+        return
+    end
+
+    -- Enough water in it. Hand over to the ordinary cooking loop with
+    -- nothing about that loop changed.
+    local ok, filled = pcall(function() return recipe:hasMinimumWater(base) end)
+    if ok and filled == true then
+        local containerList = Cook.getContainers(player)
+        if not Cook.findRecipe(player, base, task.recipeId, containerList) then
+            -- Water in, and nothing to put in it. Say that rather than
+            -- announcing an empty meal a moment later.
+            print("[AutoAll] cook stopping: reason=pot filled, no ingredients in reach")
+            AA.stop(player, getText("UI_AA_cook_noingredients"), true)
+            return
+        end
+        task.phase     = "cooking"
+        task.lastCount = contentCount(base)
+        return
+    end
+
+    -- The pot arrived, so stop waiting for it.
+    if task.fillWaitFor == "pot" and AA.holds(player, base) then
+        task.fillWaitFor, task.fillSettle = nil, nil
+    end
+
+    -- Bounded wait, never a loop: the server gets this long to confirm
+    -- what the last round asked for before the round counts as failed.
+    if task.fillSettle and task.fillSettle > 0 then
+        task.fillSettle = task.fillSettle - 1
+        return
+    end
+    task.fillWaitFor, task.fillSettle = nil, nil
+
+    task.fillRounds = (task.fillRounds or 0) + 1
+    if task.fillRounds > FILL_ROUNDS then
+        stopFilling(task, "the water never reached the pot")
+        return
+    end
+
+    -- The pot has to be in the character's own inventory to be filled,
+    -- and fetching it is a round of its own: the transfer replaces the
+    -- item instance on a server, and a fill action built on the old one
+    -- fills nothing.
+    if not AA.holds(player, base) then
+        ISTimedActionQueue.add(ISInventoryTransferUtil.newInventoryTransferAction(
+                player, base, base:getContainer(), player:getInventory(), nil))
+        task.fillWaitFor = "pot"
+        task.fillSettle  = FILL_SETTLE
+        return
+    end
+
+    local need = waterShortfall(base, recipe)
+    local source, tainted = Cook.findWaterSource(player, need)
+    if not source then
+        stopFilling(task, "no water source within " .. tostring(WATER_REACH)
+                .. " tiles holding " .. tostring(need) .. " litres")
+        return
+    end
+
+    -- The walk is queued after any fetch, never before it: fetching an
+    -- item can send the character across the room on its own, which is
+    -- the order vanilla's own onTakeWater uses for the same reason.
+    if not luautils.walkAdjObject(player, source, true, true) then
+        stopFilling(task, "cannot walk to the water source")
+        return
+    end
+
+    -- Said once per job. Tainted water is only ever picked when there is
+    -- no clean source in reach, and the dish it ends up in is not
+    -- tainted (see the note above Cook.startWater).
+    if tainted and not task.taintedSaid then
+        task.taintedSaid = true
+        AA.say(task, getText("UI_AA_cook_tainted"), false)
+    end
+
+    ISTimedActionQueue.add(ISTakeWaterAction:new(player, base, source, tainted))
+    task.fillWaitFor = "water"
+    task.fillSettle  = FILL_SETTLE
+    AA.reason(task, getText("UI_AA_cook_filling"))
+end
+
 local function think(task)
     local player = task.player
 
@@ -718,6 +1014,12 @@ local function think(task)
 
     -- Transfers, walking to a counter, anything else: let the queue finish.
     if AA.isQueueBusy(player) then return end
+
+    -- Get the water in before there is anything to cook.
+    if task.phase == "filling" then
+        fillThink(task)
+        return
+    end
 
     -- Cooking is over; see the leftovers home before finishing.
     if task.phase == "returning" then
@@ -788,25 +1090,11 @@ end
 ---        { goal = 1..4, maxItems = n, limits = { [fullType] = n } }
 ---        nil means "use the mod options", which is what the quick
 ---        context menu entry does.
-function Cook.start(player, base, recipeId, plan)
-    if not player or not base then return end
-
-    local containerList = Cook.getContainers(player)
-    local recipe = Cook.findRecipe(player, base, recipeId, containerList)
-    if not recipe then
-        -- The setup window closes before this runs, so the recipe is
-        -- resolved again against whatever is still within reach. Losing it
-        -- here used to end the whole thing in silence, looking like Start
-        -- did nothing. Same message CookUI.open gives for the same case.
-        HaloTextHelper.addBadText(player, getText("UI_AA_cook_noingredients"))
-        return
-    end
-
+local function newTask(player, base, recipeId, plan)
     plan = plan or {}
 
-    local task = {
+    return {
         kind          = "cook",
-        phase         = "cooking",
         returnTries   = 0,
         player        = player,
         base          = base,
@@ -832,8 +1120,55 @@ function Cook.start(player, base, recipeId, plan)
         think         = think,
         onStop        = onStop,
         allowMove     = true,   -- cooking walks to counters and fridges on its own
-        startText     = getText("UI_AA_cook_started", Cook.recipeName(recipe)),
     }
+end
+
+function Cook.start(player, base, recipeId, plan)
+    if not player or not base then return end
+
+    local containerList = Cook.getContainers(player)
+    local recipe = Cook.findRecipe(player, base, recipeId, containerList)
+    if not recipe then
+        -- The setup window closes before this runs, so the recipe is
+        -- resolved again against whatever is still within reach. Losing it
+        -- here used to end the whole thing in silence, looking like Start
+        -- did nothing. Same message CookUI.open gives for the same case.
+        HaloTextHelper.addBadText(player, getText("UI_AA_cook_noingredients"))
+        return
+    end
+
+    local task = newTask(player, base, recipeId, plan)
+    task.phase     = "cooking"
+    task.startText = getText("UI_AA_cook_started", Cook.recipeName(recipe))
+
+    AA.startTask(task)
+end
+
+--- Starts a cook on a pot that is still short of water.
+---
+--- Same job as Cook.start, one phase earlier: the character fills the pot
+--- first and then the cooking loop runs exactly as it always has.
+---
+--- On tainted water. It is only ever used when there is no clean source
+--- in reach, and it does not reach the plate: EvolvedRecipe.addItem
+--- builds the result item from the factory and removes the pot from the
+--- inventory, so the pot's fluid - tainted or not - is not carried into
+--- the dish, and the tainted flag it does copy is copied from the
+--- previous base item only when that was already Food. An empty pot is
+--- not. Vanilla allows the same thing by hand: fill a pot from a tainted
+--- source and Prepare Soup appears on it.
+function Cook.startWater(player, base, recipeId)
+    if not player or not base then return end
+
+    local recipe = Cook.findBaseRecipe(player, base, recipeId, nil)
+    if not recipe or not needsWater(recipe, base) then
+        HaloTextHelper.addBadText(player, getText("UI_AA_cook_nowater"))
+        return
+    end
+
+    local task = newTask(player, base, recipeId, nil)
+    task.phase     = "filling"
+    task.startText = getText("UI_AA_cook_started_water", Cook.recipeName(recipe))
 
     AA.startTask(task)
 end
@@ -848,6 +1183,46 @@ end
 
 Cook.onStop = function(player)
     AA.stop(player, getText("UI_AA_stopped"), false)
+end
+
+Cook.onStartWater = function(player, base, recipeId)
+    Cook.startWater(player, base, recipeId)
+end
+
+--- The recipes this item is only short of water for.
+---
+--- Offered exactly when the job could actually run: the option is on,
+--- the recipe wants water the pot has not got, and there is a source in
+--- reach holding enough to make up the difference. With no source the
+--- entry is not drawn at all rather than greyed out - there is nothing
+--- the player could do about it from this menu, and an empty pot with no
+--- sink in the room is the ordinary case rather than a fault.
+local function addWaterOptions(context, player, base, containerList)
+    -- Soup and Stew ask the same pot for the same water, so the sweep is
+    -- kept per shortfall rather than per recipe: this runs on every right
+    -- click of a pot.
+    local found = {}
+
+    for _, recipe in ipairs(Cook.waterRecipes(player, base, containerList)) do
+        local need = waterShortfall(base, recipe)
+        if found[need] == nil then
+            found[need] = { Cook.findWaterSource(player, need) }
+        end
+        local source, tainted = found[need][1], found[need][2]
+        if source then
+            local option = AA.addOption(context,
+                    getText("UI_AA_cook_option", Cook.recipeName(recipe)),
+                    player, Cook.onStartWater, base, recipe:getUntranslatedName())
+            local tooltip = ISInventoryPaneContextMenu.addToolTip()
+            tooltip.description = getText("UI_AA_cook_option_water_tt",
+                    recipe:getMaxItems() or 0)
+            if tainted then
+                tooltip.description = tooltip.description
+                        .. " <LINE> " .. getText("UI_AA_cook_tainted")
+            end
+            option.toolTip = tooltip
+        end
+    end
 end
 
 local function addCookMenu(playerNum, context, items)
@@ -890,8 +1265,13 @@ local function addCookMenu(playerNum, context, items)
     end
 
     local containerList = Cook.getContainers(player)
+
+    -- Two lists, and they cannot overlap. This one is what the base game
+    -- would offer; the water one below is what it refuses only because
+    -- the pot is empty, and a recipe that passes the water test is never
+    -- in it.
     local recipes = RecipeManager.getEvolvedRecipe(base, player, containerList, true)
-    if not recipes or recipes:size() == 0 then return end
+    if not recipes then recipes = ArrayList.new() end
 
     for i = 0, recipes:size() - 1 do
         local recipe = recipes:get(i)
@@ -916,6 +1296,8 @@ local function addCookMenu(playerNum, context, items)
         end
         option.toolTip = tooltip
     end
+
+    addWaterOptions(context, player, base, containerList)
 end
 
 AA.registerMenu("cook", Events.OnFillInventoryObjectContextMenu, addCookMenu)
