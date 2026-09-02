@@ -834,6 +834,26 @@ function AA.actionIsProgressing(task)
     return now() - (task.deltaSince or now()) < STALLED_DELTA_WINDOW
 end
 
+-- task.stalls counts CONSECUTIVE stalls, not stalls for the whole job.
+--
+-- It used to be cumulative, so three recoveries spread over a long job -
+-- each one of which worked, each one followed by minutes of ordinary
+-- progress - ended it with "an action would not finish". Auto Clean was
+-- worst at maxStalls = 2. Dismantle and Rip already zeroed it from their
+-- own confirmPendingCrafts, which is why only they were immune; doing it
+-- here means every module gets it and it cannot drift apart again.
+--
+-- What counts as progress is a new action reaching the head of the queue
+-- on its own, because that means the one before it finished. The catch is
+-- that clearing a stalled queue ALSO produces a new head a moment later,
+-- and that head is the work being re-queued rather than work that landed.
+-- So a clear arms task.stallCleared, and the next head change spends the
+-- flag instead of the counter. The head change after THAT one is real
+-- completion, and resets.
+--
+-- The flag deliberately survives the queue draining to empty: the queue is
+-- always empty for a tick or two straight after a clear, and the task then
+-- queues its retry.
 function AA.queueStalled(task)
     if not task.stallTimeout then return false end
 
@@ -847,6 +867,11 @@ function AA.queueStalled(task)
     -- dozen actions is not stalled, however long the whole run takes.
     local head = AA.currentAction(task.player)
     if head ~= task.queueHead then
+        if task.stallCleared then
+            task.stallCleared = false
+        else
+            task.stalls = 0
+        end
         task.queueHead, task.queueSince = head, now()
         task.waitNoticed, task.lastDelta, task.deltaSince = nil, nil, nil
         return false
@@ -914,9 +939,15 @@ local function onPlayerUpdate(player)
         pcall(function() ISTimedActionQueue.clear(player) end)
         task.queueHead, task.queueSince = nil, nil
 
+        -- The next action to reach the head is the retry this clear caused,
+        -- not evidence the job is moving again. See the note on
+        -- AA.queueStalled.
+        task.stallCleared = true
+
         -- Clearing it once is a recovery. Doing it over and over means the
         -- task cannot make progress, and grinding on silently is exactly
-        -- the behaviour being fixed here.
+        -- the behaviour being fixed here. Consecutive now, so a job that
+        -- recovers and then works for another five minutes starts over.
         if task.stalls >= (task.maxStalls or 3) then
             AA.stop(player, getText("UI_AA_stop_stuck"), true)
             return
