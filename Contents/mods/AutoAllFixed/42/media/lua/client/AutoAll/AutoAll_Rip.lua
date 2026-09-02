@@ -578,8 +578,36 @@ end
 --- This is what makes the finish message a count of real work rather than
 --- a count of actions queued, and it is what stops a job looping over a
 --- pile it cannot actually process.
+--- Files away whatever the round that has just finished actually made.
+---
+--- Anything in the inventory that was not there the instant before the
+--- crafts went out came out of one of them. Recorded per round rather than
+--- worked out once at the end, because a job runs many rounds and fetches
+--- more garments between them - see returnResults for what that cost.
+local function recordProduced(task)
+    local before = task.roundBefore
+    task.roundBefore = nil
+    if not before then return end
+
+    local items = task.player:getInventory():getItems()
+    for i = 0, items:size() - 1 do
+        local item = items:get(i)
+        if item and not before[item] then
+            task.produced[item] = true
+        end
+    end
+end
+
 local function confirmPendingCrafts(task)
-    if #task.pendingItems == 0 then return true end
+    if #task.pendingItems == 0 then
+        -- No craft went out this round, so nothing that has turned up in the
+        -- inventory since the snapshot came from this job. Throw the
+        -- snapshot away rather than filing a gathering transfer as a result.
+        task.roundBefore = nil
+        return true
+    end
+
+    recordProduced(task)
 
     local succeeded = 0
     for _, item in ipairs(task.pendingItems) do
@@ -632,9 +660,24 @@ end
 --- character loaded down.
 ---
 --- Which items are "the results" is worked out by comparing the inventory
---- against the snapshot rather than against a list of expected outputs:
+--- against a snapshot rather than against a list of expected outputs:
 --- RipDenimClothing picks its output through an itemMapper, and a modded
 --- recipe could produce anything at all.
+---
+--- The comparison is now per craft round (task.produced, filled in by
+--- recordProduced) rather than the one snapshot taken before the first
+--- craft. Against that single snapshot everything the job had not put there
+--- itself looked like a result, and got shipped into the wardrobe: whatever
+--- the player picked up while the job ran, every looted garment the rounds
+--- never reached, every prefetched one - and a pair of scissors borrowed in
+--- a later round, which got returnSupplies' transfer queued and then a
+--- second transfer into the wardrobe stacked on top of it.
+---
+--- Belt and braces on top of that: never send a borrowed supply, and never
+--- send anything that was in the inventory when the job started. task.before
+--- may be nil - it is only set once a crafting round has actually run, and a
+--- job that loots and then cannot plan reaches here without it - so it is
+--- read defensively rather than indexed blind.
 local function returnResults(task)
     if not AA.opt("ripResultsToSource") then return end
 
@@ -643,10 +686,19 @@ local function returnResults(task)
     local inventory = player:getInventory()
     if not dest or dest == inventory then return end
 
+    local borrowed = {}
+    for _, entry in ipairs(task.borrowedFrom) do
+        if entry.item then borrowed[entry.item] = true end
+    end
+
+    local before = task.before
     local items = inventory:getItems()
     for i = 0, items:size() - 1 do
         local item = items:get(i)
-        if item and not task.before[item] and not protected(player, item) then
+        if item and task.produced[item]
+                and not borrowed[item]
+                and not (before and before[item])
+                and not protected(player, item) then
             ISTimedActionQueue.add(ISInventoryTransferAction:new(player, item, inventory, dest))
         end
     end
@@ -929,6 +981,9 @@ local function planRound(task)
         -- Nothing had to be fetched, so there is nothing to wait for.
         task.phase = "crafting"
         if not task.before then task.before = snapshot(player) end
+        -- A second, per-round snapshot: what this round's crafts add to the
+        -- inventory is what this round produced. See recordProduced.
+        task.roundBefore = snapshot(player)
         local queued = queueCrafting(task)
         task.queued = task.queued + queued
         return queued > 0
@@ -994,6 +1049,8 @@ local function think(task)
         -- snapshot, or the strips made so far would look like they were
         -- always there and would never be sent home.
         if not task.before then task.before = snapshot(player) end
+        -- And a per-round one, for what this round's crafts produce.
+        task.roundBefore = snapshot(player)
         local queued, unsettled = queueCrafting(task)
         task.queued = task.queued + queued
 
@@ -1110,6 +1167,10 @@ function Rip.start(player, fullType, label, destination)
         -- something already in the inventory.
         destination  = destination or (items[1] and items[1]:getContainer()),
         before       = nil,
+        -- Snapshot taken around each craft round, and the set of items those
+        -- rounds actually made. Only these go to the destination.
+        roundBefore  = nil,
+        produced     = {},
         queued       = 0,
         succeeded    = 0,
         pendingItems = {},
