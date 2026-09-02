@@ -489,5 +489,6 @@
     "UI_AA_cook_tainted": "Only tainted water in reach. The taint does not carry into the finished dish.",
     "UI_AA_cook_nowater": "Auto Cook stopped: could not get water into the pot.",
     "UI_AA_opt_cookFillWater": "Fill the pot from a nearby sink or barrel first",
-    "UI_AA_opt_cookFillWater_tt": "When the pot is empty, looks four tiles around for a sink, barrel or well with enough water in it and fills the pot before cooking."
+    "UI_AA_opt_cookFillWater_tt": "When the pot is empty, looks four tiles around for a sink, barrel or well with enough water in it and fills the pot before cooking.",
+    "UI_AA_cook_combo_water": "%1 (gets water first)"
 }

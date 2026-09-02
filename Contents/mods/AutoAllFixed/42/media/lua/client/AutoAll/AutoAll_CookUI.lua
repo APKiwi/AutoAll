@@ -55,18 +55,45 @@ CookUI.instance = nil
 -- gathering what the window has to show
 ---------------------------------------------------------------------
 
---- The dishes this base item can become right now.
+--- The dishes this base item can become right now, and which of them
+--- start with a trip to the sink.
+---
+--- Two lists, the same pair the context menu draws. The first is what the
+--- base game itself would offer. The second is the water one: dishes an
+--- empty pot is refused only because it is empty, offered exactly when
+--- there is a source in reach to fix that with. Second return value is a
+--- lookup by untranslated name of the ones in that second list.
 local function recipesFor(player, base, containerList)
-    local out = {}
-    if not base or base:isNoRecipes(player) then return out end
+    local out, water = {}, {}
+    if not base or base:isNoRecipes(player) then return out, water end
 
     local recipes = RecipeManager.getEvolvedRecipe(base, player, containerList, true)
-    if not recipes then return out end
-
-    for i = 0, recipes:size() - 1 do
-        table.insert(out, recipes:get(i))
+    if recipes then
+        for i = 0, recipes:size() - 1 do
+            table.insert(out, recipes:get(i))
+        end
     end
-    return out
+
+    local seen = {}
+    for _, recipe in ipairs(out) do
+        seen[recipe:getUntranslatedName()] = true
+    end
+
+    -- Appended rather than mixed in, so the dishes that need no walking
+    -- stay at the top of the combo. A recipe already in the filtered list
+    -- is never added twice - it passed the water test, so it is not short
+    -- of water at all - but the check is cheap and the two lists come
+    -- from different lookups.
+    for _, entry in ipairs(Cook.reachableWaterRecipes(player, base, containerList)) do
+        local id = entry.recipe:getUntranslatedName()
+        if not seen[id] then
+            seen[id] = true
+            water[id] = true
+            table.insert(out, entry.recipe)
+        end
+    end
+
+    return out, water
 end
 
 --- One row per ingredient type, with how many of it are within reach.
@@ -118,7 +145,13 @@ function CookUI:createChildren()
     self.recipeCombo:initialise()
     self:addChild(self.recipeCombo)
     for _, recipe in ipairs(self.recipes) do
-        self.recipeCombo:addOptionWithData(Cook.recipeName(recipe), recipe)
+        -- Marked rather than hidden: the dish is on offer, it just costs
+        -- a walk to the sink before anything goes in the pot.
+        local label = Cook.recipeName(recipe)
+        if self:getsWater(recipe) then
+            label = getText("UI_AA_cook_combo_water", label)
+        end
+        self.recipeCombo:addOptionWithData(label, recipe)
     end
     y = y + ROW_HGT + 6
 
@@ -379,6 +412,16 @@ function CookUI:selectedRecipe()
     return option and option.data or self.recipes[1]
 end
 
+--- Is this one of the dishes the pot has to be filled for first?
+---
+--- Answered off the list the window was opened with rather than asked
+--- again, so the combo label, the ingredient rows and Start cannot end up
+--- disagreeing with each other halfway through a window.
+function CookUI:getsWater(recipe)
+    if not recipe then return false end
+    return (self.waterRecipes or {})[recipe:getUntranslatedName()] == true
+end
+
 --- Rebuilds the ingredient list, keeping whatever the player already
 --- decided about each one.
 ---
@@ -534,7 +577,7 @@ function CookUI:onCancel()
     if CookUI.instance == self then CookUI.instance = nil end
 end
 
-function CookUI:new(player, base, recipes)
+function CookUI:new(player, base, recipes, water)
     local screenW = getCore():getScreenWidth()
     local screenH = getCore():getScreenHeight()
 
@@ -545,6 +588,7 @@ function CookUI:new(player, base, recipes)
     o.player  = player
     o.base    = base
     o.recipes = recipes
+    o.waterRecipes = water or {}
     o.rows    = {}
 
     o.backgroundColor = { r = 0, g = 0, b = 0, a = 0.85 }
@@ -559,13 +603,13 @@ function CookUI.open(player, base)
     if CookUI.instance then CookUI.instance:onCancel() end
 
     local containerList = Cook.getContainers(player)
-    local recipes = recipesFor(player, base, containerList)
+    local recipes, water = recipesFor(player, base, containerList)
     if #recipes == 0 then
         HaloTextHelper.addBadText(player, getText("UI_AA_cook_noingredients"))
         return
     end
 
-    local window = CookUI:new(player, base, recipes)
+    local window = CookUI:new(player, base, recipes, water)
     window:initialise()
     window:instantiate()
     window:addToUIManager()
@@ -590,9 +634,13 @@ local function addCookSetupMenu(playerNum, context, items)
     if not base or not instanceof(base, "InventoryItem") then return end
     if base:isNoRecipes(player) then return end
 
+    -- The same list the window itself would build, so the entry is drawn
+    -- exactly when the window has something to show. Asking the filtered
+    -- lookup here instead left an empty pot with a sink behind it with no
+    -- setup entry at all, while the quick "Auto Cook: Soup" entry right
+    -- above it was drawn.
     local containerList = Cook.getContainers(player)
-    local recipes = RecipeManager.getEvolvedRecipe(base, player, containerList, true)
-    if not recipes or recipes:size() == 0 then return end
+    if #recipesFor(player, base, containerList) == 0 then return end
 
     local option = AA.addOption(context, getText("UI_AA_cook_setup"), player, Cook.onSetup, base)
     local tooltip = ISInventoryPaneContextMenu.addToolTip()
