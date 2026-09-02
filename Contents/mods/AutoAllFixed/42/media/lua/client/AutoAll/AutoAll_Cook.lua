@@ -711,6 +711,15 @@ local function think(task)
             return
         end
 
+        -- Consecutive failures, not attempts. A run that is still
+        -- sending ingredients home gets its budget back, so a big pile of
+        -- leftovers is not declared a failure on the sixth pass while it
+        -- is plainly working.
+        if task.lastReturnLeft == nil or left < task.lastReturnLeft then
+            task.returnTries = 0
+        end
+        task.lastReturnLeft = left
+
         task.returnTries = (task.returnTries or 0) + 1
         if task.returnTries > RETURN_ATTEMPTS then
             -- Refused every time. Say so rather than quietly leaving the
