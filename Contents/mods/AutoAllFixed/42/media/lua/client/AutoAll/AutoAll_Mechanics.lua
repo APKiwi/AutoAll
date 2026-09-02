@@ -475,6 +475,20 @@ local function payingInstall(task, part, item)
     return not xpAlreadyPaid(task.player, task.vehicle, item, "1")
 end
 
+--- The id of the item this job took off this slot, whether that item is
+--- still in the inventory or lying on the floor where the job put it down.
+---
+--- A part dropped on defer stays ours. It has to: an install that picks it
+--- back up and then loses its roll leaves it in the inventory again, and if
+--- the drop had wiped the ownership nothing would recognise it after that.
+--- bestItemFor skips it once it is broken, and deadWeight, the overload
+--- shed, the closing sweep and the ending report all key off ourCarriedItem,
+--- which would answer nil for the rest of the job.
+local function ownedIdFor(task, part)
+    local id = part:getId()
+    return task.ours[id] or (task.dropped and task.dropped[id]) or nil
+end
+
 --- The item this job itself took off the car for this part, if the
 --- character is still carrying it.
 ---
@@ -488,7 +502,7 @@ end
 --- containers, so a part already lying on the ground would be picked as
 --- something to drop and the job would drop it forever.
 local function ourCarriedItem(task, part)
-    local wanted = task.ours[part:getId()]
+    local wanted = ownedIdFor(task, part)
     if not wanted then return nil end
 
     local types = part:getItemType()
@@ -662,7 +676,7 @@ local function dryRun(player, vehicle)
     -- yet, so it can never propose dropping something.
     return {
         player = player, vehicle = vehicle,
-        cycle = {}, strikes = {}, ours = {}, unreachable = {},
+        cycle = {}, strikes = {}, ours = {}, dropped = {}, unreachable = {},
     }
 end
 
@@ -1341,8 +1355,19 @@ local function think(task)
             -- already dropped is not being carried at all.
             if task.action == "uninstall" or task.action == "clear" then
                 task.ours[task.current] = task.pendingItem
-            else
+                task.dropped[task.current] = nil
+            elseif task.action == "drop" then
+                -- On the floor is not gone. Ownership moves across rather
+                -- than being cleared, so a part that comes back - an install
+                -- picks it up and the roll fails - is still recognised as
+                -- ours, and so is a part still lying there when the job ends.
+                task.dropped[task.current] = task.ours[task.current]
+                        or task.dropped[task.current] or task.pendingItem
                 task.ours[task.current] = nil
+            else
+                -- Back on the car. Neither carried nor on the ground.
+                task.ours[task.current] = nil
+                task.dropped[task.current] = nil
             end
 
             -- The half of the cycle that just paid out. Recorded per part
@@ -1472,6 +1497,11 @@ function Mech.start(player, vehicle)
         -- only items the closing sweep is allowed to drop, so a spare the
         -- player brought along is never thrown away.
         ours      = {},
+        -- [partId] = id of the item this job put on the ground for it, and
+        -- has not got back on the car. Ownership survives a round trip
+        -- through the floor: a deferred part is dropped at the corner and
+        -- picked up again when its install comes due.
+        dropped   = {},
         -- [partId] = failed walks. At UNREACHABLE the part is left alone;
         -- the game says it is legal, the pathfinder says otherwise.
         unreachable = {},
