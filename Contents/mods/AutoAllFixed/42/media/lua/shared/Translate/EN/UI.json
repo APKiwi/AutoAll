@@ -348,6 +348,7 @@
     "UI_MM_stop_zombie": "Auto training stopped: zombies nearby.",
     "UI_MM_stop_damage": "Auto training stopped: you are taking damage.",
     "UI_MM_stop_health": "Auto training stopped: health too low.",
+    "UI_MM_stop_injury": "Auto training stopped: an injury needs treating first.",
     "UI_MM_stop_load": "Auto training stopped: carrying too much.",
     "UI_MM_stop_manual": "Auto training stopped: manual control.",
     "UI_MM_stop_panel": "Auto training stopped: panel closed.",

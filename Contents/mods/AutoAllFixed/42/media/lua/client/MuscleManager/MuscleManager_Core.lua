@@ -859,6 +859,46 @@ end
 -- safety
 ---------------------------------------------------------------------
 
+--- A stop condition is on when Muscle Manager's own option says so, or when
+--- Auto All's matching one does.
+---
+--- Auto Exercise is one of Auto All's modules, so a player who ticked "stop
+--- when zombies are near" over there expects it to hold here too. The two
+--- panels carry the same key for the same idea and neither is going to be
+--- kept in step with the other by hand, so either one arms the stop.
+local function stopOptionOn(key)
+    if MM.opt(key) then return true end
+    if AutoAll and type(AutoAll.opt) == "function" then
+        local ok, value = pcall(AutoAll.opt, key)
+        if ok and value == true then return true end
+    end
+    return false
+end
+
+--- A fracture, an untreated deep wound or active bleeding: reasons to stop
+--- that overall body health never shows.
+---
+--- The health check below is a per-think delta, and these hurt far too
+--- slowly to move it - a slow bleed and a broken arm both read as a
+--- perfectly healthy character right up until they do not. Training on any
+--- of them makes them worse.
+local function injuredBodyPart(player)
+    local ok, hurt = pcall(function()
+        local parts = player:getBodyDamage():getBodyParts()
+        if not parts then return false end
+        for i = 0, parts:size() - 1 do
+            local part = parts:get(i)
+            if part then
+                if part:getFractureTime() > 0 then return true end
+                if part:isDeepWounded() then return true end
+                if part:getBleedingTime() > 0 then return true end
+            end
+        end
+        return false
+    end)
+    return ok and hurt == true
+end
+
 --- Returns a message when auto mode must end, nil otherwise.
 function MM.checkSafety(state)
     local player = state.player
@@ -866,7 +906,7 @@ function MM.checkSafety(state)
     if player:isDead() then return getText("UI_MM_stop_generic") end
     if player:getVehicle() then return getText("UI_MM_stop_vehicle") end
 
-    if MM.opt("stopZombie") then
+    if stopOptionOn("stopZombie") then
         local stats = player:getStats()
         if stats:getNumVisibleZombies() > 0 or stats:getNumChasingZombies() > 0
                 or stats:getNumVeryCloseZombies() > 0 then
@@ -877,11 +917,15 @@ function MM.checkSafety(state)
     local health = player:getBodyDamage():getOverallBodyHealth()
     local damaged = health < (state.lastHealth or health) - 0.05
     state.lastHealth = health
-    if MM.opt("stopDamage") and damaged then
+    if stopOptionOn("stopDamage") and damaged then
         return getText("UI_MM_stop_damage")
     end
     if MM.opt("stopLowHealth") and health < MM.opt("minHealth") then
         return getText("UI_MM_stop_health")
+    end
+
+    if injuredBodyPart(player) then
+        return getText("UI_MM_stop_injury")
     end
 
     if MM.opt("stopHeavyLoad") and player:getMoodles():getMoodleLevel(MoodleType.HEAVY_LOAD) > 2 then
@@ -896,6 +940,18 @@ function MM.checkSafety(state)
 
     if MM.opt("stopOnClose") and state.panel and not state.panel:getIsVisible() then
         return getText("UI_MM_stop_panel")
+    end
+
+    -- ESC. The Auto All task slot covers AA.stopAll, but the per-tick cancel
+    -- press is what every other automation checks for itself and it has to
+    -- work here whether or not the slot was ever claimed. Same grace window
+    -- as the manual-control check, so the ESC that closed a menu just before
+    -- the set started does not end it.
+    if now() - (state.setStartedAt or 0) > START_GRACE then
+        local ok, cancelled = pcall(function() return player:pressedCancelAction() end)
+        if ok and cancelled == true then
+            return getText("UI_MM_stop_manual")
+        end
     end
 
     return nil
