@@ -524,6 +524,21 @@ local function cycleOf(task, id)
     return entry
 end
 
+--- One part of the car, counted once.
+---
+--- task.done used to count actions: an uninstall, an install, a drop and a
+--- clear each added one. So "Parts at most" stopped at roughly a third of
+--- the number the player set, and the closing line overstated the work by
+--- the same factor. A part is done when it has been off and back on - both
+--- payouts - or when the job put it on the ground for good. A part parked on
+--- the floor while its corner is worked is neither: it counts when it goes
+--- back on.
+local function countPart(task, id)
+    if task.counted[id] then return end
+    task.counted[id] = true
+    task.done = task.done + 1
+end
+
 --- Would taking this part off pay any XP?
 local function payingUninstall(task, part)
     if cycleOf(task, part:getId()).off then return false end
@@ -907,7 +922,10 @@ local function candidates(task)
                 if deferred then
                     local held = ourCarriedItem(task, part)
                     if held and not held:isFavorite() then
-                        add({ part = part, item = held, action = "drop", order = index })
+                        -- Parked, not finished with: it is coming back on
+                        -- this corner, so it must not count as a part done.
+                        add({ part = part, item = held, action = "drop",
+                              order = index, park = true })
                     end
                 end
 
@@ -1128,6 +1146,8 @@ local function workNext(task)
 
     task.current = choice.part:getId()
     task.action  = choice.action
+    -- A drop that is only putting the part down for the length of a corner.
+    task.parking = choice.park == true
 
     -- Read before the part comes off, because afterwards the slot is empty
     -- and there is no way back to which item it was. This is what lets the
@@ -1571,7 +1591,6 @@ local function think(task)
         end
 
         if moved then
-            task.done = task.done + 1
             task.strikes[task.current] = nil
             task.sinceProgress = 0
             task.sinceMoved    = 0
@@ -1610,6 +1629,14 @@ local function think(task)
                 -- put back on, or it would block the same part again.
                 cycle.off = true
                 cycle.on  = true
+            end
+
+            -- Parts, not actions. Both halves of the cycle, or a part the
+            -- job has finished with and left on the ground.
+            if cycle.off and cycle.on then
+                countPart(task, task.current)
+            elseif task.action == "drop" and not task.parking then
+                countPart(task, task.current)
             end
         else
             local failures = (task.strikes[task.current] or 0) + 1
@@ -1715,7 +1742,8 @@ function Mech.start(player, vehicle)
         kind      = "mechanics",
         player    = player,
         vehicle   = vehicle,
-        done      = 0,
+        done      = 0,       -- parts finished, not actions taken
+        counted   = {},      -- [partId] = counted towards done already
         -- [partId] = { off = paid for coming off, on = paid for going on }
         cycle     = {},
         strikes   = {},     -- [partId] = failures in a row, only ever a sort key
