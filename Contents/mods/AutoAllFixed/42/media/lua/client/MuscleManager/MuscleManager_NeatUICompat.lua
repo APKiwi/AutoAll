@@ -45,6 +45,12 @@ local function fitNeatPanel(panel)
     if not layout or not panel.header then return end
     panel.mmNeatFitted = true
 
+    -- With Auto Exercise switched off, ISFitnessUI:initialise returns before
+    -- building either widget, so there is no row to make space for. Growing
+    -- and re-centring the window anyway left an empty band under Neat
+    -- Rocco's layout on a panel that has nothing extra in it.
+    if not (panel.mmAuto or panel.mmOptions) then return end
+
     local pad = layout.pad or MM.uiBorderSpacing
     local rowHgt = MM.uiButtonHgt
     local extraHgt = rowHgt + pad * 2
