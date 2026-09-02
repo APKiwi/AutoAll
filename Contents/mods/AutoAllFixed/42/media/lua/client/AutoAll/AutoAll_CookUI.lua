@@ -7,8 +7,10 @@
     goes in.
 
     Nothing here cooks anything by itself. It collects three numbers and
-    hands them to Cook.start as a plan; the actual cooking is the same
-    vanilla ISAddItemInRecipe loop it has always been.
+    hands them to Cook.start as a plan, and the actual cooking is the same
+    vanilla ISAddItemInRecipe loop it has always been. A pot that is still
+    short of water goes to Cook.startWater instead, which fills it from a
+    source in reach and then runs that same loop with that same plan.
 
       goal      which of the four weightings the picker scores with
       maxItems  how many things go in before it stops
@@ -724,8 +726,22 @@ function CookUI:onStart()
     local base   = self.base
     local id     = recipe:getUntranslatedName()
 
+    -- Asked again rather than read off the combo the window was built
+    -- with: it can sit open while the pot is filled by hand, and a dish
+    -- that has its water now is an ordinary start. Same list the context
+    -- menu draws from, so the two cannot disagree at the moment it
+    -- matters.
+    local getsWater = false
+    for _, entry in ipairs(Cook.reachableWaterRecipes(player, base, Cook.getContainers(player))) do
+        if entry.recipe:getUntranslatedName() == id then getsWater = true break end
+    end
+
     self:onCancel()
-    Cook.start(player, base, id, plan)
+    if getsWater then
+        Cook.startWater(player, base, id, plan)
+    else
+        Cook.start(player, base, id, plan)
+    end
 end
 
 function CookUI:onCancel()
