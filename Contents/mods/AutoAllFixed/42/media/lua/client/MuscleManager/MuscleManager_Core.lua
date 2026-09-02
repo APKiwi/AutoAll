@@ -305,6 +305,76 @@ end
 -- start / stop
 ---------------------------------------------------------------------
 
+---------------------------------------------------------------------
+-- the Auto All task slot
+--
+-- The exercise loop keeps its own OnPlayerUpdate think(). It is a different
+-- shape from every other automation and replacing it would be a rewrite
+-- rather than a fix. What it did not have was a seat at Auto All's table:
+-- ESC stopped every job except this one, AA.isRunning could not see a
+-- session at all, and starting Auto Cook queued a second job into the same
+-- action queue, whose stop then cleared the fitness set out from under it.
+--
+-- A shim task fixes all three without touching the loop. It registers
+-- through AA.startTask, so the one-task-at-a-time rule and AA.checkSafety
+-- apply to a training session like they do to everything else. Its think()
+-- does nothing, it never clears the action queue (the loop owns that), and
+-- its onStop ends the session with a message. Auto All's own speed latch is
+-- stood down from the start, because MM.applySpeed already owns the speed
+-- here and two latches writing the same slot would each read the other as
+-- the player.
+---------------------------------------------------------------------
+
+--- Claims Auto All's single task slot for this session. Does nothing at all
+--- when the loop is running standalone and there is no Auto All to ask.
+function MM.claimTaskSlot(state)
+    if not (AutoAll and type(AutoAll.startTask) == "function") then return end
+    local player = state.player
+
+    local task = {
+        player           = player,
+        kind             = "exercise",
+        -- The loop manages its own queue: rests, meals and returns are all
+        -- queued by think() and clearing them on stop would cancel the very
+        -- cleanup the stop is for.
+        clearQueueOnStop = false,
+        -- It walks to rest spots and gym machines on its own, so "the
+        -- character is moving" is not the player taking over.
+        allowMove        = true,
+        speedGaveUp      = true,
+        think            = function() end,
+        onStop           = function()
+            state.aaTask = nil
+            -- A no-op when the stop started in MM.stop. The real work when
+            -- Auto All stopped us: ESC, or another job taking the slot.
+            MM.stop(player, getText("UI_MM_stop_generic"), false)
+            -- Last, so the transfers sit behind the forceStops MM.stop does.
+            MM.returnAllBorrowed(state)
+        end,
+    }
+
+    state.aaTask = task
+    pcall(AutoAll.startTask, task)
+end
+
+--- Hands the slot back. AA.stop runs our onStop, which is where the session
+--- and the borrowed items are wound up.
+function MM.releaseTaskSlot(state)
+    local task = state.aaTask
+    if not task then return end
+    if not (AutoAll and type(AutoAll.stop) == "function") then
+        state.aaTask = nil
+        return
+    end
+    -- Only when it is still ours. Auto All may already have replaced it, in
+    -- which case onStop has run and there is nothing left to release.
+    if AutoAll.tasks and AutoAll.tasks[task.playerNum] ~= task then
+        state.aaTask = nil
+        return
+    end
+    pcall(AutoAll.stop, state.player, nil, false)
+end
+
 --- Cancels the running vanilla fitness action, if any (same as the panel's Cancel button).
 function MM.stopFitnessAction(player)
     local action = currentAction(player)
@@ -352,6 +422,10 @@ function MM.stop(player, reason, bad)
     MM.releaseSpeed(state)
     MM.stopFitnessAction(player)
     MM.stopRestAction(player)
+    -- Hands Auto All's slot back. Its onStop returns the borrowed items, so
+    -- the call below only does anything when there is no Auto All to hand
+    -- the slot back to.
+    MM.releaseTaskSlot(state)
     -- After the forceStops above, so the transfers are not the thing being
     -- cancelled. A stop used to keep whatever was borrowed.
     MM.returnAllBorrowed(state)
@@ -393,6 +467,10 @@ function MM.start(player, exercise, minutes, panel)
         levelStartStrength = player:getPerkLevel(Perks.Strength),
         levelStartFitness  = player:getPerkLevel(Perks.Fitness),
     }
+    -- Claimed before the state is installed: if a stale exercise task is
+    -- still holding the slot, AA.startTask stops it, and that stop has to
+    -- find the old session rather than this one.
+    MM.claimTaskSlot(state)
     MM.states[player:getPlayerNum()] = state
 
     MM.log("start " .. tostring(exercise) .. " / " .. tostring(state.minutes) .. " min / endurance "
