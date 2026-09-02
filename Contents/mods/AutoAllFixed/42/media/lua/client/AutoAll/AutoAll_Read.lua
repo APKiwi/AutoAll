@@ -137,10 +137,22 @@ function Read.collect(player)
     return found
 end
 
+--- Books are tracked by full type, not by item id.
+---
+--- Progress is per type - getAlreadyReadPages and setAlreadyReadPages both
+--- take the full type, and getKnownRecipes is a property of the character.
+--- Tracking by id let both copies of one book into a batch: copy 2's
+--- ISReadABook captured startPage 0 when it was constructed, so it re-read
+--- the whole thing for nothing, and a stop part way through wrote the
+--- recorded progress back down. Both copies counted toward readMaxBooks.
+local function keyOf(item)
+    return item:getFullType()
+end
+
 function Read.pickNext(task)
     local best = nil
     for _, entry in ipairs(Read.collect(task.player)) do
-        local id = entry.item:getID()
+        local id = keyOf(entry.item)
         if not task.done[id] and not task.inFlight[id] and not task.failed[id] then
             if best == nil or entry.order < best.order then best = entry end
         end
@@ -177,7 +189,7 @@ local function queueRead(task, item)
         action = action,
         before = readProgress(player, item),
     })
-    task.inFlight[item:getID()] = true
+    task.inFlight[keyOf(item)] = true
 
     if AA.opt("readReturnItems") then
         ISCraftingUI.ReturnItemToContainer(player, item, home)
@@ -195,7 +207,7 @@ local function confirmPendingReads(task)
             table.insert(waiting, entry)
         else
             local item = entry.item
-            local id = item:getID()
+            local id = keyOf(item)
             task.inFlight[id] = nil
 
             if Read.appraise(task.player, item) == nil then
