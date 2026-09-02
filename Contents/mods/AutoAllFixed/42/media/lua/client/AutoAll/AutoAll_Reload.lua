@@ -230,6 +230,11 @@ local EJECT_ATTEMPTS = 8
 -- quickly rather than sat on.
 local PREPARE_ATTEMPTS = 8
 
+-- Magazine-fuls an AmmoBag may be asked for in one preparing phase. Two
+-- covers a draw that lands late without letting a draw that never
+-- satisfies containsWithModule empty the bag.
+local AMMO_BAG_DRAWS = 2
+
 ---------------------------------------------------------------------
 -- Modern Firearms System (Workshop 3633421539)
 --
@@ -332,6 +337,7 @@ local function prepareCycling(task, item)
     task.isMagazine  = Reload.isMagazine(item)
     task.phase       = "preparing"
     task.prepareTries = 0
+    task.bagDrawn    = 0
 
     ISInventoryPaneContextMenu.transferIfNeeded(player, item)
     ISInventoryPaneContextMenu.transferBullets(player, ammoKeyOf(item), 0, item:getMaxAmmo())
@@ -412,15 +418,26 @@ local function think(task)
             return
         end
 
+        -- A draw is an attempt like any other. Counting it before it is
+        -- made is what stops a draw that never satisfies containsWithModule
+        -- from emptying the whole bag at getMaxAmmo() rounds a tick: it sat
+        -- above this line and returned, so the give-up counter never moved.
+        task.prepareTries = (task.prepareTries or 0) + 1
+
         -- Modern Firearms keeps its rounds inside an AmmoBag, where
         -- transferBullets cannot see them. Ask the mod for them the
         -- way its own reload does, then let the next tick re-check.
-        if key and drawFromAmmoBag(player, key, item:getMaxAmmo()) > 0 then
-            return
+        local drawn  = task.bagDrawn or 0
+        local budget = item:getMaxAmmo() * AMMO_BAG_DRAWS - drawn
+        if key and budget > 0 and task.prepareTries <= PREPARE_ATTEMPTS then
+            local moved = drawFromAmmoBag(player, key, math.min(item:getMaxAmmo(), budget))
+            if moved > 0 then
+                task.bagDrawn = drawn + moved
+                return
+            end
         end
 
         -- The transfer may simply not have caught up yet on a client.
-        task.prepareTries = (task.prepareTries or 0) + 1
         if task.prepareTries > PREPARE_ATTEMPTS then
             print("[AutoAll] reload not ready: ammo=" .. tostring(key)
                     .. " inInventory=" .. tostring(key and player:getInventory():containsWithModule(key))
