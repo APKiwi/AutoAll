@@ -591,8 +591,11 @@ end
 ---
 --- Zombies are still covered: stopZombie is a separate check, it runs
 --- first, and it is on by default.
---- Below this the body is genuinely in trouble and no task's opinion about
---- its own workload outranks that.
+--- Below this the body is genuinely in trouble, and allowHeavy's waiver
+--- stops applying: being heavy is not a reason to stop, being heavy and
+--- hurt is. It is not a waiver of the player's own settings though - see
+--- checkSafety, where the floor sits inside the same gates as the drop
+--- check rather than above them.
 ---
 --- getOverallBodyHealth() is 0-100. Muscle strain from an overloaded
 --- inventory does real, accumulating damage, and allowHeavy used to waive
@@ -656,13 +659,28 @@ function AA.checkSafety(task)
     -- mechanics job now sheds weight the moment it is overloaded - a part
     -- that cannot go back on this turn goes on the ground - so the strain
     -- never builds. Zombies, movement and ESC still stop everything.
-    if not task.ignoreDamage then
+    --
+    -- The health floor sits INSIDE the stopDamage gate rather than above
+    -- it. It used to be its own branch on absolute health, which made it
+    -- the one health stop that ignored the player unticking "stop when
+    -- taking damage" and the one that never asked the task whether the
+    -- damage was the thing it was started to deal with. A character at 62
+    -- health with a deep bleeding wound, overloaded after looting, could
+    -- not run Auto Medicine at all: the first think stopped the job before
+    -- a single bandage went on. Same gates for both, so the answer to
+    -- "why did it not stop" and "why did it stop" is one rule.
+    --
+    -- ignoreDamage is unchanged and still waives the lot, which is what
+    -- Auto Mechanics asked for.
+    if not task.ignoreDamage and AA.opt("stopDamage")
+            and not carryingItOff(task, health)
+            and not expectedDamage(task) then
+        -- carryingItOff is false below the floor by construction, so
+        -- allowHeavy still buys nothing down here.
         if health < HEALTH_FLOOR and AA.isOverloaded(player) then
             return getText("UI_AA_stop_hurt")
         end
-        if AA.opt("stopDamage") and damaged
-                and not carryingItOff(task, health)
-                and not expectedDamage(task) then
+        if damaged then
             return getText("UI_AA_stop_damage")
         end
     end
