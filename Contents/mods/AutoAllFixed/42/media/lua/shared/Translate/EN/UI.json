@@ -141,6 +141,7 @@
     "UI_AA_steril_rags": "rags",
     "UI_AA_steril_option_tt": "Sterilizes them one after the other with the alcohol or boiled water in reach. Ready to do: %1 of %2.",
     "UI_AA_steril_nosupplies": "Not enough rubbing alcohol, spirits or hot water within reach.",
+    "UI_AA_steril_blocked": "Found things to sterilize, but none of them can be right now. Try again in a moment.",
     "UI_AA_steril_nothing": "Nothing here to sterilize.",
     "UI_AA_steril_started": "Sterilizing all %1...",
     "UI_AA_steril_done": "Sterilizing finished: %1 items.",

@@ -433,7 +433,7 @@ local function queueCrafting(task)
             unsettled = unsettled + 1
         else
             -- Which of the two it was. The round diagnostic can already say
-            -- the batch was planned and then queued nothing; it cannot say
+            -- the batch was planned and then queued nothing, but not
             -- whether the tin went missing or the engine stopped offering
             -- the recipe, and those have completely different causes.
             print("[AutoAll] open cannot craft " .. tostring(item:getFullType())
