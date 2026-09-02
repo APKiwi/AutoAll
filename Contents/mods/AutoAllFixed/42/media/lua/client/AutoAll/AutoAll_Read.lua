@@ -213,6 +213,12 @@ local function confirmPendingReads(task)
                     task.noProgress[id] = failures
                     if failures >= MAX_NO_PROGRESS then
                         task.failed[id] = true
+                        -- Cleared with the same stroke that gives up on this
+                        -- book. think() walks noProgress and stops the whole
+                        -- job the moment it finds a maxed entry, so leaving
+                        -- it at MAX made the skip in pickNext unreachable and
+                        -- one dropped fetch ended a twenty book run.
+                        task.noProgress[id] = nil
                     end
                 end
             end
