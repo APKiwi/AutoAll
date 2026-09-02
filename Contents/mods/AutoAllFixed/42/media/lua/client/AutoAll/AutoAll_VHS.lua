@@ -714,24 +714,35 @@ local function think(task)
     end
 
     task.tries = task.tries + 1
-    if task.tries > STEP_RETRIES then
-        print("[AutoAll] vhs: phase '" .. tostring(task.phase) .. "' gave up after "
-                .. tostring(task.tries) .. " tries")
-        AA.stop(player, getText("UI_AA_vhs_stuck"), true)
+
+    -- Press the button again. tries counts attempts at THIS step for THIS
+    -- tape, so the budget below is spent before anything is given up on.
+    if task.tries <= STEP_RETRIES then
+        task.phaseAt = AA.now()
+        handle(task, act(task, data))
         return
     end
 
     -- A tape that will not go into the slot is set aside rather than tried
     -- for ever. One bad tape should cost the job that tape, not the rest of
     -- the shelf.
+    --
+    -- enter() rather than act(), because the next tape is a new attempt and
+    -- starts at zero tries. Calling act() here left the count climbing
+    -- across tapes, so the second one was discarded on its first timeout and
+    -- the third ended the whole job.
     if task.phase == "insert" and task.current then
-        print("[AutoAll] vhs: a tape would not go in - skipping it")
+        print("[AutoAll] vhs: a tape would not go in after "
+                .. tostring(STEP_RETRIES) .. " tries - skipping it")
         task.failed[task.current.index] = true
         task.current = nil
+        handle(task, enter(task, "insert", data))
+        return
     end
 
-    task.phaseAt = AA.now()
-    handle(task, act(task, data))
+    print("[AutoAll] vhs: phase '" .. tostring(task.phase) .. "' gave up after "
+            .. tostring(task.tries) .. " tries")
+    AA.stop(player, getText("UI_AA_vhs_stuck"), true)
 end
 
 ---------------------------------------------------------------------
