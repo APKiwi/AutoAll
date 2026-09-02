@@ -204,6 +204,35 @@ local function soapRemaining(player)
     return ISWashClothing.GetSoapRemaining(soaps)
 end
 
+--- What a list of gathered cleaning products is worth, by vanilla's own
+--- maths (GetSoapRemaining only iterates size/get, so any list will do).
+---
+--- This exists because the read that used to stand in for it was the bug.
+--- ISInventoryPaneContextMenu.transferIfNeeded only QUEUES a transfer, and
+--- soapRemaining() was called a few lines further down, before a single one
+--- of those transfers had run. So "with cleaning products" always saw zero,
+--- marked every garment noSoap, and washed the whole pile at the slow rate
+--- with the soap sitting unused in the bag afterwards.
+---
+--- Counting what the fetch found is the right shape here rather than moving
+--- the read to after the fetch settles: this job has no gather-then-plan
+--- split to move it into. queueEverything runs once, in the tick the player
+--- clicks, and think() does not run again until the whole queue has drained
+--- - by which point the job is over. A phase split would be a restructure
+--- rather than a fix, and it would also cost the batch its single queue.
+local function soapValueOf(items)
+    if #items == 0 then return 0 end
+
+    local list = ArrayList.new()
+    for _, soap in ipairs(items) do
+        list:add(soap)
+    end
+
+    local ok, total = pcall(function() return ISWashClothing.GetSoapRemaining(list) end)
+    if ok and type(total) == "number" then return total end
+    return 0
+end
+
 --- Finds soap in the containers in reach so the player does not have to
 --- fish it out of the cupboard by hand first.
 function Clean.gatherSoap(player)
@@ -648,18 +677,29 @@ local function queueEverything(task)
     -- whatever the game says is there and needs no special case.
     local budget = fluidAmountOf(source)
 
+    -- What is already carried, plus what the fetch below is bringing. The
+    -- fetch has only been queued by the time the wash is planned, so the
+    -- second half has to be counted rather than read back. See soapValueOf.
+    local soapLeft = 0
     if useSoap then
+        local fetched, seen = {}, {}
         for _, soap in ipairs(Clean.gatherSoap(player)) do
-            ISInventoryPaneContextMenu.transferIfNeeded(player, soap)
+            -- getContainers can hand the same container back twice, so the
+            -- same bar can be offered twice. Transferring it twice is a
+            -- wasted action and counting it twice is a lie about the soap.
+            if not seen[soap] then
+                seen[soap] = true
+                table.insert(fetched, soap)
+                ISInventoryPaneContextMenu.transferIfNeeded(player, soap)
+            end
         end
+        soapLeft = soapRemaining(player) + soapValueOf(fetched)
     end
 
     if AA.opt("cleanSelf") and Clean.selfNeedsWashing(player) then
         ISTimedActionQueue.add(ISWashYourself:new(player, source))
         budget = budget - ISWashYourself.GetRequiredWater(player)
     end
-
-    local soapLeft = useSoap and soapRemaining(player) or 0
 
     for _, item in ipairs(task.items) do
         local water = ISWashClothing.GetRequiredWater(item)
