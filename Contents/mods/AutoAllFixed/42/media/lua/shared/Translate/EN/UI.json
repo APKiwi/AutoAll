@@ -465,6 +465,7 @@
     "UI_AA_open_done": "Finished: %1 opened.",
     "UI_AA_open_nothing": "Nothing here is still sealed.",
     "UI_AA_open_notool": "No can opener or sharp knife within reach.",
+    "UI_AA_open_blocked": "Found things to open, but none of them can be right now. Try again in a moment.",
     "UI_AA_open_stop": "Stop Opening",
     "UI_AA_opt_cookSpoilFirst": "Use up the food closest to spoiling",
     "UI_AA_opt_cookSpoilFirst_tt": "Among the ingredients on offer, prefers the ones with the least time left before they go stale. Nothing rotten is ever used - that is a separate setting.",

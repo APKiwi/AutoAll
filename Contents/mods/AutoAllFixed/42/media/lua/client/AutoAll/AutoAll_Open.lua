@@ -234,6 +234,22 @@ local function recipeFor(player, item, containers)
     return nil
 end
 
+--- True for an item still on a dead body.
+---
+--- Straight from Dismantle.onCorpse, and here for the same reason: a
+--- container's parent is what says whose it is, and a corpse is a parent
+--- like any other. Used to keep a body from being handed the opened food
+--- as a destination.
+function Open.onCorpse(item)
+    if not item then return false end
+    local container = item:getContainer()
+    if not container then return false end
+
+    local ok, parent = pcall(function() return container:getParent() end)
+    if not ok or not parent then return false end
+    return instanceof(parent, "IsoDeadBody") == true
+end
+
 --- Builds the same crafting logic the vanilla context menu would.
 local function buildLogic(player, item, recipe)
     local logic = HandcraftLogic.new(player, nil, nil)
@@ -249,7 +265,21 @@ end
 --- `fullType` narrows it to one kind, the way "Open All Beans" does.
 --- nil means everything.
 function Open.collect(player, fullType)
+    local seen = {}
     local matches = function(item)
+        -- Judge each item exactly once.
+        --
+        -- getAllEvalRecurse on the main inventory already walks every worn
+        -- bag, and getContainers hands those same bags back as entries of
+        -- its own, so the loop below offers their contents a second time.
+        -- The only guard was `item:getContainer() ~= inventory`, which is
+        -- true for a bag, so every tin in one was collected twice, counted
+        -- twice in the menu and queued for two crafts - the second of them
+        -- against an input the first had already destroyed. Same dedupe,
+        -- same reason, as Dismantle.collect.
+        if seen[item] then return false end
+        seen[item] = true
+
         if fullType and item:getFullType() ~= fullType then return false end
         return Open.isCandidate(item)
     end
@@ -372,6 +402,7 @@ local function queueCrafting(task)
     local playerNum  = player:getPlayerNum()
     local containers = containersOf(player)
     local queued     = 0
+    local unsettled  = 0
     local pending    = {}
 
     task.before = snapshotInventory(player)
@@ -380,23 +411,54 @@ local function queueCrafting(task)
     for _, item in ipairs(task.items) do
         -- Re-checked per item: an item may have been eaten, dropped or
         -- opened by hand while the transfers ran.
-        if item:getContainer() then
-            local recipe = recipeFor(player, item, containers)
-            if recipe then
-                ISInventoryPaneContextMenu.OnNewCraft(item, recipe, playerNum, false, nil)
-                queued = queued + 1
-                table.insert(pending, item)
-            end
+        local container = item:getContainer()
+        local recipe = container and recipeFor(player, item, containers) or nil
+
+        if recipe then
+            ISInventoryPaneContextMenu.OnNewCraft(item, recipe, playerNum, false, nil)
+            queued = queued + 1
+            table.insert(pending, item)
+        elseif not container then
+            -- Not gone: in transit.
+            --
+            -- ISInventoryTransferAction removes the item from the source
+            -- before the destination takes it, and on a client the second
+            -- half waits on the server. An item caught in that gap has no
+            -- container for a moment, and the gathering phase hands over
+            -- the instant its queue drains, which is exactly that moment.
+            -- A client batch is one tin, so that one tin is the whole
+            -- round: it queued nothing and the job stopped with "no can
+            -- opener" on round one, every time. Auto Dismantle carries the
+            -- same counter for the same reason. Waiting a tick is free.
+            unsettled = unsettled + 1
+        else
+            -- Which of the two it was. The round diagnostic can already say
+            -- the batch was planned and then queued nothing; it cannot say
+            -- whether the tin went missing or the engine stopped offering
+            -- the recipe, and those have completely different causes.
+            print("[AutoAll] open cannot craft " .. tostring(item:getFullType())
+                    .. ": container=" .. tostring(container and "yes" or "GONE")
+                    .. " recipe=" .. tostring(recipe and "yes" or "NONE")
+                    .. " inInventory=" .. tostring(container == player:getInventory())
+                    .. " containers=" .. tostring(containers and containers:size() or -1))
         end
     end
 
     task.pendingItems = pending
-    return queued
+    return queued, unsettled
 end
 
 -- Rounds in a row where nothing was consumed before the job is called
 -- stuck. Same figure the other two batch jobs use.
 local MAX_NO_PROGRESS = 3
+
+-- Rounds in a row that planned a batch and then queued no craft at all.
+local MAX_EMPTY_CRAFTS = 3
+
+-- Ticks a batch may wait for a transfer to land before it is treated as a
+-- stale plan rather than a slow one. think() runs 250ms apart and the
+-- server ack takes two or three seconds, so this covers 3.5s.
+local MAX_UNSETTLED = 14
 
 --- Did the crafts queued last round actually happen?
 ---
@@ -419,6 +481,11 @@ local function confirmPendingCrafts(task)
 
     if succeeded > 0 then
         task.noProgress = 0
+        -- Real work landed, so the stall count starts over. Without this
+        -- the counter is cumulative and three recoveries spread across a
+        -- whole job end it, even though each one worked and the job kept
+        -- going.
+        task.stalls = 0
         return true
     end
 
@@ -489,7 +556,12 @@ local function planRound(task)
     local player = task.player
 
     local items = Open.collect(player, task.fullType)
-    if #items == 0 then return false end
+    task.lastItems = #items
+    task.lastOpenable, task.lastDoable, task.lastPossible = nil, nil, nil
+    if #items == 0 then
+        task.failReason = "nothing"
+        return false
+    end
 
     local containers = containersOf(player)
 
@@ -504,21 +576,57 @@ local function planRound(task)
             table.insert(openable, item)
         end
     end
-    if not first then return false end
+    task.lastOpenable = #openable
+    if not first then
+        -- Nothing in the pile has a recipe at all: that is the pile, not
+        -- the tool. Told apart the way Auto Dismantle tells them apart.
+        task.failReason = "blocked"
+        return false
+    end
 
     local logic = buildLogic(player, first, recipe)
-    if not logic:canPerformCurrentRecipe() then return false end
+    if not logic:canPerformCurrentRecipe() then
+        -- Something had a recipe but the logic would not run it: that is
+        -- the tool.
+        task.failReason = "notool"
+        return false
+    end
 
-    local doable = #openable
+    -- Capped by what the game says it can actually do, the way Auto
+    -- Sterilize and Auto Dismantle both cap theirs. Without this the whole
+    -- openable pile was queued in one go, so a batch bigger than the
+    -- opener, the knife or the pile itself could cover ran crafts against
+    -- inputs that were already gone. The argument is "recalculate", not a
+    -- filter: with false the engine skips the maths and hands back a
+    -- cached zero.
+    local possible = logic:getPossibleCraftCount(true) or 0
+    if possible < 0 then possible = 0 end
+    task.lastPossible = possible
+
+    local doable = math.min(possible, #openable)
 
     local configMax = AA.opt("openMax") or 0
-    if configMax > 0 then doable = math.min(doable, configMax - task.succeeded) end
+    if configMax > 0 then
+        -- Measured against what has been queued, not against what has been
+        -- confirmed. The confirmation lands a round late, so counting
+        -- succeeded let round after round plan a full cap's worth before
+        -- the first of them had been scored, and the job overshot.
+        doable = math.min(doable, math.max(0, configMax - task.queued))
+    end
 
     -- On a client the batch is only as big as the last round earned.
     -- See AA.batchSize in the core.
     local clientCap = AA.batchSize(task)
     if clientCap then doable = math.min(doable, clientCap) end
-    if doable <= 0 then return false end
+
+    task.lastDoable = doable
+
+    if doable <= 0 then
+        task.failReason = "blocked"
+        return false
+    end
+
+    task.failReason = nil
 
     local batch = {}
     for i = 1, doable do
@@ -539,13 +647,48 @@ local function planRound(task)
     task.phase    = "gathering"
 
     if queueGathering(task) == 0 then
+        -- Nothing had to be fetched, so there is nothing to wait for.
         task.phase = "crafting"
         local queued = queueCrafting(task)
         task.queued = task.queued + queued
+        if queued == 0 then
+            task.failReason = "blocked"
+        else
+            task.emptyCrafts = 0
+        end
         return queued > 0
     end
 
     return true
+end
+
+-- Why the last round could not be planned.
+--
+-- Every dead end used to say "No can opener or sharp knife within reach",
+-- including the ones with an opener in hand - an empty pile, a stale batch
+-- and a tin the engine will not offer a recipe for all ended there. Same
+-- three-way split, and the same diagnostic line, as Auto Dismantle.
+local STOP_TEXT = {
+    nothing = "UI_AA_open_nothing",
+    notool  = "UI_AA_open_notool",
+    blocked = "UI_AA_open_blocked",
+}
+
+local function stopText(task)
+    -- One line naming the dead end, because "none of them can be opened
+    -- right now" is the honest message and still not a diagnosis.
+    -- Everything the planner decided from, in the order it decided it.
+    print("[AutoAll] open stopping: reason=" .. tostring(task.failReason or "unset")
+            .. " items=" .. tostring(task.lastItems)
+            .. " openable=" .. tostring(task.lastOpenable)
+            .. " doable=" .. tostring(task.lastDoable)
+            .. " possible=" .. tostring(task.lastPossible)
+            .. " batch=" .. tostring(task.batchSize)
+            .. " queued=" .. tostring(task.queued)
+            .. " succeeded=" .. tostring(task.succeeded)
+            .. " rounds=" .. tostring(task.rounds)
+            .. " emptyCrafts=" .. tostring(task.emptyCrafts or 0))
+    return getText(STOP_TEXT[task.failReason] or "UI_AA_open_blocked")
 end
 
 --- One round, inside a cache. Every recipe lookup a round makes asks
@@ -570,10 +713,57 @@ local function think(task)
     if task.phase == "gathering" then
         task.phase = "crafting"
         AA.reason(task, getText("UI_AA_open_working"))
-        local queued = withCache(queueCrafting, task) or 0
+        local queued, unsettled = withCache(queueCrafting, task)
+        queued = queued or 0
+        unsettled = unsettled or 0
         task.queued = task.queued + queued
+
         if queued == 0 then
-            AA.stop(player, getText("UI_AA_open_notool"), true)
+            -- Nothing was crafted, so there is nothing for collectResults
+            -- to diff against: a tin that lands from here is a transfer
+            -- arriving, not something a craft produced, and counting it as
+            -- a result would post a still-sealed tin to the destination.
+            -- queueCrafting takes a fresh snapshot the next time it runs.
+            task.awaitingResults = false
+        end
+
+        -- Nothing queued, but only because a transfer had not landed yet.
+        -- Come back next tick with the same batch instead of spending a
+        -- re-plan on it. Bounded, so a tin that really has gone still falls
+        -- through to the re-plan below.
+        if queued == 0 and unsettled > 0
+                and (task.unsettled or 0) < MAX_UNSETTLED then
+            task.unsettled = (task.unsettled or 0) + 1
+            task.phase = "gathering"
+            return
+        end
+        task.unsettled = 0
+
+        if queued == 0 then
+            -- The plan was made before the fetching ran, and fetching moves
+            -- the character. Walking to a fridge changes which containers
+            -- the loot window holds, and containersOf reads that window, so
+            -- a recipe that resolved while standing in front of it can stop
+            -- resolving once the character has stepped away. On a client a
+            -- transfer can also be discarded in silence.
+            --
+            -- Either way the batch is stale, not impossible. Re-plan
+            -- against the world as it is now rather than declaring the
+            -- whole pile untouchable. Bounded, so a pile that genuinely
+            -- cannot be worked still ends rather than spinning.
+            task.emptyCrafts = (task.emptyCrafts or 0) + 1
+            if task.emptyCrafts < MAX_EMPTY_CRAFTS and task.rounds < roundBudget() then
+                print("[AutoAll] open re-planning after an empty craft round ("
+                        .. tostring(task.emptyCrafts) .. "/"
+                        .. tostring(MAX_EMPTY_CRAFTS) .. ")")
+                task.rounds = task.rounds + 1
+                if beginRound(task) then return end
+            end
+
+            task.failReason = task.failReason or "blocked"
+            AA.stop(player, stopText(task), true)
+        else
+            task.emptyCrafts = 0
         end
         return
     end
@@ -612,6 +802,17 @@ function Open.start(player, fullType, label, destination)
         return
     end
 
+    -- Where the opened food goes at the end. Falls back to the container
+    -- the first of the batch came from when the option was used on
+    -- something already carried.
+    --
+    -- A corpse is never a destination, however the option is set: pushing
+    -- opened tins into the body they came off is not "back where they came
+    -- from", it is losing them. The clicked destination is guarded in the
+    -- menu, this is the same guard on the fallback.
+    local fallback = items[1] and items[1]:getContainer() or nil
+    if fallback and Open.onCorpse(items[1]) then fallback = nil end
+
     local task = {
         kind         = "open",
         player       = player,
@@ -620,10 +821,7 @@ function Open.start(player, fullType, label, destination)
         supplies     = {},
         borrowedFrom = {},
         borrowedSeen = {},
-        -- Where the opened food goes at the end. Falls back to the
-        -- container the first of the batch came from when the option
-        -- was used on something already carried.
-        destination  = destination or items[1]:getContainer(),
+        destination  = destination or fallback,
         before       = {},
         results      = {},
         queued       = 0,
@@ -631,6 +829,9 @@ function Open.start(player, fullType, label, destination)
         pendingItems = {},
         noProgress   = 0,
         rounds       = 0,
+        emptyCrafts  = 0,
+        unsettled    = 0,
+        failReason   = nil,
         -- A single action that never ends freezes the whole job in
         -- silence: think() is gated on the queue draining, so nothing
         -- is ever said and nothing is written to the log.
@@ -644,7 +845,7 @@ function Open.start(player, fullType, label, destination)
     AA.startTask(task)
 
     if not beginRound(task) then
-        AA.stop(player, getText("UI_AA_open_notool"), true)
+        AA.stop(player, stopText(task), true)
     end
 end
 
@@ -702,12 +903,24 @@ local function addOpenMenu(playerNum, context, items)
 
     -- One cache around both entries. Each of them counts what is within
     -- reach, and both ask the crafting engine about the same item types.
+    -- Right clicking one inside a fridge, a crate or on the floor sends the
+    -- opened food back there. Used on something already carried, it stays
+    -- in the inventory.
+    -- A corpse is never a destination, however the option is set: pushing
+    -- opened tins into the body they came off is not "back where they came
+    -- from", it is losing them.
+    local clicked = item:getContainer()
+    local destination = nil
+    if clicked and clicked ~= player:getInventory() and not Open.onCorpse(item) then
+        destination = clicked
+    end
+
     withCache(function()
         local fullType = item:getFullType()
         addEntry(context, player,
             getText("UI_AA_open_option", item:getDisplayName()),
             fullType, Open.onStartOne,
-            { fullType = fullType, label = item:getDisplayName(), destination = item:getContainer() })
+            { fullType = fullType, label = item:getDisplayName(), destination = destination })
 
         addEntry(context, player, getText("UI_AA_open_option_all"), nil, Open.onStartAll)
     end)
