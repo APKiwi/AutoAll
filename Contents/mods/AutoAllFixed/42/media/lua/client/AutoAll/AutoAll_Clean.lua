@@ -456,6 +456,30 @@ local function queueRedress(task)
     return queued
 end
 
+-- Sweeps of the final re-dress. The first one is queued by the redressing
+-- phase itself, the rest by the verifying phase below when the game says a
+-- garment still is not on. Three, because a wear that was refused three
+-- times in a row is not going to land on the fourth.
+local MAX_REDRESS_TRIES = 3
+
+--- Called by AA.stop for every ending this job has, not just the tidy one.
+---
+--- queueOneWring takes a garment off and only the job's own phases ever put
+--- it back, so a stop part way through - a zombie, a movement key, ESC,
+--- damage, a stall - left the character standing in its underwear with the
+--- shirt on the floor of the inventory. AA.stop clears the action queue
+--- BEFORE calling this hook (see AutoAll_Core), which is exactly what makes
+--- it safe to queue the wears here: they survive the clear that cancelled
+--- the abandoned wringing.
+local function wringOnStop(task)
+    if not task.player or task.player:isDead() then return end
+    for id in pairs(task.wornIds) do
+        -- One garment that cannot be resolved must not cost the others
+        -- their wear, so each is queued on its own.
+        pcall(queueWear, task, id)
+    end
+end
+
 local function advance(task)
     task.current   = nil
     task.wearTries = 0
@@ -521,8 +545,27 @@ local function wringThink(task)
     -- so queueing the wear and stopping in the same tick would throw the
     -- wear away.
     if task.phase == "redressing" then
+        task.phase        = "verifying"
+        task.redressTries = 0
+        if queueRedress(task) > 0 then
+            task.redressTries = 1
+            return
+        end
+    end
+
+    -- The sweep queued its wears and the queue has now drained, which on
+    -- its own proves nothing: a wear the client threw away drains exactly
+    -- like one that landed. So ask the game what is actually on the
+    -- character and re-queue whatever is missing, a bounded number of
+    -- times, before the job is allowed to call itself done. Saying
+    -- "wringing done" over a character holding its own trousers is the
+    -- half of TrickterTravvy's report the phase split alone did not close.
+    if task.phase == "verifying" then
+        if task.redressTries < MAX_REDRESS_TRIES and queueRedress(task) > 0 then
+            task.redressTries = task.redressTries + 1
+            return
+        end
         task.phase = "done"
-        if queueRedress(task) > 0 then return end
     end
 
     AA.stop(player, getText("UI_AA_wring_done", task.wrung), false)
@@ -554,7 +597,11 @@ function Clean.startWring(player)
         -- Every garment this job took off, for the final re-dress sweep.
         wornIds   = {},
         wearTries = 0,
+        redressTries = 0,
         think     = wringThink,
+        -- Runs on every ending, tidy or not, so no stop can leave the
+        -- character undressed. See wringOnStop.
+        onStop    = wringOnStop,
         -- A wring is seconds long (getDuration is wetness * 5), so an
         -- action still at the head of the queue after twenty is not
         -- working. Opt-in, and the job only gets two recoveries.
