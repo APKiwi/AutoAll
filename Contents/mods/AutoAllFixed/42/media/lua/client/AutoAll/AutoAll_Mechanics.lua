@@ -447,6 +447,7 @@ end
 --- once a part is off, putting it back is an obligation, not a choice, and
 --- it is retried until it goes on or breaks trying. Leaving it in the
 --- inventory forever is the worse outcome by a long way.
+---
 --- The car's own part goes back on the car. bestItemFor ranks by condition
 --- over the inventory and every open container, so on its own it bolts the
 --- player's 90% spare onto the training wreck and leaves the wreck's own
@@ -1372,6 +1373,21 @@ local function think(task)
                 -- uninstall and clear
                 moved = part:getInventoryItem() == nil
             end
+        end
+
+        -- A part that was actually reached starts its walk count over.
+        -- UNREACHABLE is meant to describe a car parked hard against a
+        -- wall, and it is only two: without a reset, a zombie standing on
+        -- the goal square once and a door in the way twenty parts later
+        -- add up to a permanently unreachable part, and the car ends a
+        -- wheel down with the job reporting that it finished.
+        --
+        -- Reaching it is what counts, not winning the roll. sawBusy means
+        -- the action ran, so the walk got there. A drop proves nothing
+        -- either way: it happens where the character already is.
+        if task.action ~= "drop" and task.pathFailedAt ~= task.current
+                and (moved or task.sawBusy) then
+            task.unreachable[task.current] = nil
         end
 
         if moved then
