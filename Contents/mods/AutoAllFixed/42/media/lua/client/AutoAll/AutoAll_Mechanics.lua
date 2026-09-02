@@ -1508,15 +1508,16 @@ local function finish(task, text, bad)
     -- Named, not counted. "Parts done: N" with a wheel lying in the mud is
     -- the report the player could not act on, and the part ids are what the
     -- console lines above use too.
-    local text, worse = ending.text, ending.bad
+    local message, asBad = ending.text, ending.bad
     if #stranded > 0 then
-        text, worse = getText("UI_AA_mech_left_off", task.done, #stranded), true
+        message, asBad = getText("UI_AA_mech_left_off", task.done, #stranded), true
     end
     if #dropped > 0 then
-        text = text .. " " .. getText("UI_AA_mech_on_ground", table.concat(dropped, ", "))
+        message = message .. " "
+                .. getText("UI_AA_mech_on_ground", table.concat(dropped, ", "))
     end
 
-    AA.stop(player, text, worse)
+    AA.stop(player, message, asBad)
 end
 
 local function think(task)
