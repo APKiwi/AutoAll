@@ -1273,7 +1273,7 @@ local function addCookMenu(playerNum, context, items)
     local containerList = Cook.getContainers(player)
 
     -- Two lists, and they cannot overlap. This one is what the base game
-    -- would offer; the water one below is what it refuses only because
+    -- would offer. The water one below is what it refuses only because
     -- the pot is empty, and a recipe that passes the water test is never
     -- in it.
     local recipes = RecipeManager.getEvolvedRecipe(base, player, containerList, true)
