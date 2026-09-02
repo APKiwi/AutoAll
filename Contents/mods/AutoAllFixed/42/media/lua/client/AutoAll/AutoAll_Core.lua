@@ -389,17 +389,23 @@ function AA.applySpeed(task)
         return
     end
 
-    -- Only ever taken from a standing start. Anything else is the player's
-    -- choice: a faster speed they picked, or a pause (slot 0) that we must
-    -- never quietly undo.
+    -- Only ever taken from a standing start.
     if slot ~= 1 then
-        task.speedGaveUp = true
-        -- Their speed, not ours - so it is never written to. But vanilla's
-        -- reset would knock it back to normal after the job's first action
-        -- and keep doing it, which reads as the mod refusing to let them
-        -- speed the game up. Standing down means not writing the speed, not
-        -- letting something else undo what they chose while our job runs.
-        task.speedFollow = true
+        if slot > 1 then
+            -- A speed the player picked. Theirs, not ours - so it is never
+            -- written to. But vanilla's reset would knock it back to normal
+            -- after the job's first action and keep doing it, which reads as
+            -- the mod refusing to let them speed the game up. Standing down
+            -- means not writing the speed, not letting something else undo
+            -- what they chose while our job runs.
+            task.speedGaveUp = true
+            task.speedFollow = true
+        end
+        -- Slot 0 is a pause, and a pause is not a choice of speed. Latching
+        -- here is what killed fast forward for a whole job when the player
+        -- happened to be paused as it started: the latch never clears, so
+        -- unpausing got them nothing. Nothing is written while paused, and
+        -- the next think takes the speed up once they are back at slot 1.
         return
     end
 
@@ -591,8 +597,11 @@ end
 ---
 --- Zombies are still covered: stopZombie is a separate check, it runs
 --- first, and it is on by default.
---- Below this the body is genuinely in trouble and no task's opinion about
---- its own workload outranks that.
+--- Below this the body is genuinely in trouble, and allowHeavy's waiver
+--- stops applying: being heavy is not a reason to stop, being heavy and
+--- hurt is. It is not a waiver of the player's own settings though - see
+--- checkSafety, where the floor sits inside the same gates as the drop
+--- check rather than above them.
 ---
 --- getOverallBodyHealth() is 0-100. Muscle strain from an overloaded
 --- inventory does real, accumulating damage, and allowHeavy used to waive
@@ -656,13 +665,28 @@ function AA.checkSafety(task)
     -- mechanics job now sheds weight the moment it is overloaded - a part
     -- that cannot go back on this turn goes on the ground - so the strain
     -- never builds. Zombies, movement and ESC still stop everything.
-    if not task.ignoreDamage then
+    --
+    -- The health floor sits INSIDE the stopDamage gate rather than above
+    -- it. It used to be its own branch on absolute health, which made it
+    -- the one health stop that ignored the player unticking "stop when
+    -- taking damage" and the one that never asked the task whether the
+    -- damage was the thing it was started to deal with. A character at 62
+    -- health with a deep bleeding wound, overloaded after looting, could
+    -- not run Auto Medicine at all: the first think stopped the job before
+    -- a single bandage went on. Same gates for both, so the answer to
+    -- "why did it not stop" and "why did it stop" is one rule.
+    --
+    -- ignoreDamage is unchanged and still waives the lot, which is what
+    -- Auto Mechanics asked for.
+    if not task.ignoreDamage and AA.opt("stopDamage")
+            and not carryingItOff(task, health)
+            and not expectedDamage(task) then
+        -- carryingItOff is false below the floor by construction, so
+        -- allowHeavy still buys nothing down here.
         if health < HEALTH_FLOOR and AA.isOverloaded(player) then
             return getText("UI_AA_stop_hurt")
         end
-        if AA.opt("stopDamage") and damaged
-                and not carryingItOff(task, health)
-                and not expectedDamage(task) then
+        if damaged then
             return getText("UI_AA_stop_damage")
         end
     end
@@ -747,8 +771,19 @@ end
 function AA.batchFeedback(task, queued, confirmed)
     if not isClient() then return end
 
-    if queued > 0 and confirmed >= queued then
-        task.batchSize = math.min((task.batchSize or 1) * 2, AA.BATCH_MAX_CLIENT)
+    local size = task.batchSize or 1
+
+    -- The round has to have actually USED the batch it was given. Comparing
+    -- confirmed against queued alone doubled the size on a round that had
+    -- only one candidate to queue, so three one-item rounds took the batch
+    -- from 1 to 8 without ever asking the server to handle more than one
+    -- craft, and then eight landed in a single tick against an inventory
+    -- that had never been tested at that rate. That is precisely the case
+    -- BATCH_MAX_CLIENT rations.
+    --
+    -- queued >= size implies queued > 0, since size is never below 1.
+    if queued >= size and confirmed >= queued then
+        task.batchSize = math.min(size * 2, AA.BATCH_MAX_CLIENT)
     else
         task.batchSize = 1
     end
@@ -816,6 +851,26 @@ function AA.actionIsProgressing(task)
     return now() - (task.deltaSince or now()) < STALLED_DELTA_WINDOW
 end
 
+-- task.stalls counts CONSECUTIVE stalls, not stalls for the whole job.
+--
+-- It used to be cumulative, so three recoveries spread over a long job -
+-- each one of which worked, each one followed by minutes of ordinary
+-- progress - ended it with "an action would not finish". Auto Clean was
+-- worst at maxStalls = 2. Dismantle and Rip already zeroed it from their
+-- own confirmPendingCrafts, which is why only they were immune. Doing it
+-- here means every module gets it and it cannot drift apart again.
+--
+-- What counts as progress is a new action reaching the head of the queue
+-- on its own, because that means the one before it finished. The catch is
+-- that clearing a stalled queue ALSO produces a new head a moment later,
+-- and that head is the work being re-queued rather than work that landed.
+-- So a clear arms task.stallCleared, and the next head change spends the
+-- flag instead of the counter. The head change after THAT one is real
+-- completion, and resets.
+--
+-- The flag deliberately survives the queue draining to empty: the queue is
+-- always empty for a tick or two straight after a clear, and the task then
+-- queues its retry.
 function AA.queueStalled(task)
     if not task.stallTimeout then return false end
 
@@ -829,6 +884,11 @@ function AA.queueStalled(task)
     -- dozen actions is not stalled, however long the whole run takes.
     local head = AA.currentAction(task.player)
     if head ~= task.queueHead then
+        if task.stallCleared then
+            task.stallCleared = false
+        else
+            task.stalls = 0
+        end
         task.queueHead, task.queueSince = head, now()
         task.waitNoticed, task.lastDelta, task.deltaSince = nil, nil, nil
         return false
@@ -896,9 +956,15 @@ local function onPlayerUpdate(player)
         pcall(function() ISTimedActionQueue.clear(player) end)
         task.queueHead, task.queueSince = nil, nil
 
+        -- The next action to reach the head is the retry this clear caused,
+        -- not evidence the job is moving again. See the note on
+        -- AA.queueStalled.
+        task.stallCleared = true
+
         -- Clearing it once is a recovery. Doing it over and over means the
         -- task cannot make progress, and grinding on silently is exactly
-        -- the behaviour being fixed here.
+        -- the behaviour being fixed here. Consecutive now, so a job that
+        -- recovers and then works for another five minutes starts over.
         if task.stalls >= (task.maxStalls or 3) then
             AA.stop(player, getText("UI_AA_stop_stuck"), true)
             return

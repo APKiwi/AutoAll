@@ -118,7 +118,22 @@ end
 --- the ones being carried first, then the ones in open containers, so a
 --- full inventory is used up before anything is fetched.
 function Sterilize.collect(player, wanted)
-    local matches = function(item) return wanted[item:getFullType()] == true end
+    local seen = {}
+    local matches = function(item)
+        -- Judge each item exactly once.
+        --
+        -- getAllEvalRecurse on the main inventory already walks every worn
+        -- bag, and getContainers hands those same bags back as entries of
+        -- its own, so the loop below offers their contents a second time.
+        -- The only guard was `item:getContainer() ~= inventory`, which is
+        -- true for a bag, so anything in one was counted twice: the tooltip
+        -- read "6 of 12" over a pile of six. Same dedupe, same reason, as
+        -- Dismantle.collect.
+        if seen[item] then return false end
+        seen[item] = true
+
+        return wanted[item:getFullType()] == true
+    end
 
     local carried, stored = {}, {}
     local inventory = player:getInventory()
@@ -233,28 +248,60 @@ local function queueCrafting(task)
     local playerNum  = player:getPlayerNum()
     local containers = containersOf(player)
     local queued     = 0
+    local unsettled  = 0
     local pending    = {}
 
     for _, item in ipairs(task.items) do
         -- Re-checked per item: the supplies are consumed as the queue
         -- runs, and an item may have been dropped or used in the meantime.
-        if item:getContainer() then
-            local recipe = pickRecipe(recipesFor(player, item, containers))
-            if recipe then
-                ISInventoryPaneContextMenu.OnNewCraft(item, recipe, playerNum, false, nil)
-                queued = queued + 1
-                table.insert(pending, item)
-            end
+        local container = item:getContainer()
+        local recipe = container and pickRecipe(recipesFor(player, item, containers)) or nil
+
+        if recipe then
+            ISInventoryPaneContextMenu.OnNewCraft(item, recipe, playerNum, false, nil)
+            queued = queued + 1
+            table.insert(pending, item)
+        elseif not container then
+            -- Not gone: in transit.
+            --
+            -- ISInventoryTransferAction removes the item from the source
+            -- before the destination takes it, and on a client the second
+            -- half waits on the server. An item caught in that gap has no
+            -- container for a moment, and the gathering phase hands over
+            -- the instant its queue drains, which is exactly that moment.
+            -- A client batch is one bandage, so that one bandage is the
+            -- whole round: it queued nothing and the job stopped with "not
+            -- enough alcohol" on round one, with the alcohol in reach. Auto
+            -- Dismantle carries the same counter for the same reason.
+            unsettled = unsettled + 1
+        else
+            -- Which of the two it was. The round diagnostic can already say
+            -- the batch was planned and then queued nothing, but not
+            -- whether the item went missing or the engine stopped offering
+            -- the recipe, and those have completely different causes.
+            print("[AutoAll] sterilize cannot craft " .. tostring(item:getFullType())
+                    .. ": container=" .. tostring(container and "yes" or "GONE")
+                    .. " recipe=" .. tostring(recipe and "yes" or "NONE")
+                    .. " inInventory=" .. tostring(container == player:getInventory())
+                    .. " containers=" .. tostring(containers and containers:size() or -1))
         end
     end
 
     task.pendingItems = pending
-    return queued
+    return queued, unsettled
 end
 
 -- Rounds in a row where nothing was actually consumed before the job is
 -- called stuck. From Mickey's maintenance fork (Workshop 3781695662).
 local MAX_NO_PROGRESS = 3
+
+-- Rounds in a row that planned a batch and then queued no craft at all.
+local MAX_EMPTY_CRAFTS = 3
+
+-- Ticks a batch may wait for a transfer to land before it is treated as a
+-- stale plan rather than a slow one. think() runs 250ms apart and the
+-- server ack takes two or three seconds, so this covers 3.5s.
+local MAX_UNSETTLED = 14
 
 --- Did the crafts queued last round actually happen?
 ---
@@ -282,6 +329,11 @@ local function confirmPendingCrafts(task)
 
     if succeeded > 0 then
         task.noProgress = 0
+        -- Real work landed, so the stall count starts over. Without this
+        -- the counter is cumulative and three recoveries spread across a
+        -- whole job end it, even though each one worked and the job kept
+        -- going.
+        task.stalls = 0
         return true
     end
 
@@ -327,20 +379,36 @@ local function beginRound(task)
     local player = task.player
 
     local items = Sterilize.collect(player, task.wanted)
-    if #items == 0 then return false end
+    task.lastItems = #items
+    task.lastDoable, task.lastPossible = nil, nil
+    if #items == 0 then
+        task.failReason = "nothing"
+        return false
+    end
 
     local containers = containersOf(player)
     local recipe = pickRecipe(recipesFor(player, items[1], containers))
-    if not recipe then return false end
+    if not recipe then
+        -- Nothing the engine will offer a recipe for: that is the pile, not
+        -- the supplies. Told apart the way Auto Dismantle tells them apart.
+        task.failReason = "blocked"
+        return false
+    end
 
     local logic = buildLogic(player, items[1], recipe)
-    if not logic:canPerformCurrentRecipe() then return false end
+    if not logic:canPerformCurrentRecipe() then
+        -- There is a recipe but the logic will not run it: no alcohol, no
+        -- hot water, no heat source.
+        task.failReason = "notool"
+        return false
+    end
 
     -- The argument is "recalculate", not a filter. With false the engine
     -- skips the maths entirely and hands back its cached figure, which on
     -- a logic we just built is still zero.
     local possible = logic:getPossibleCraftCount(true) or 0
     local doable = math.min(possible, #items)
+    task.lastPossible = possible
 
     -- On a client the batch is only as big as the last round earned, and
     -- it starts at one. See AA.batchSize in the core for the whole reason
@@ -349,7 +417,15 @@ local function beginRound(task)
     -- inventory is consistent the moment an action ends.
     local clientCap = AA.batchSize(task)
     if clientCap then doable = math.min(doable, clientCap) end
-    if doable <= 0 then return false end
+
+    task.lastDoable = doable
+
+    if doable <= 0 then
+        task.failReason = "blocked"
+        return false
+    end
+
+    task.failReason = nil
 
     local batch = {}
     for i = 1, doable do
@@ -378,10 +454,43 @@ local function beginRound(task)
         task.phase = "crafting"
         local queued = queueCrafting(task)
         task.queued = task.queued + queued
+        if queued == 0 then
+            task.failReason = "blocked"
+        else
+            task.emptyCrafts = 0
+        end
         return queued > 0
     end
 
     return true
+end
+
+-- Why the last round could not be planned.
+--
+-- Every dead end used to say "Not enough rubbing alcohol, spirits or hot
+-- water within reach" - an empty pile, a stale batch and a missing heat
+-- source all ended there. Same three-way split, and the same diagnostic
+-- line, as Auto Dismantle.
+local STOP_TEXT = {
+    nothing = "UI_AA_steril_nothing",
+    notool  = "UI_AA_steril_nosupplies",
+    blocked = "UI_AA_steril_blocked",
+}
+
+local function stopText(task)
+    -- One line naming the dead end, because "none of them can be done right
+    -- now" is the honest message and still not a diagnosis. Everything the
+    -- planner decided from, in the order it decided it.
+    print("[AutoAll] sterilize stopping: reason=" .. tostring(task.failReason or "unset")
+            .. " items=" .. tostring(task.lastItems)
+            .. " doable=" .. tostring(task.lastDoable)
+            .. " possible=" .. tostring(task.lastPossible)
+            .. " batch=" .. tostring(task.batchSize)
+            .. " queued=" .. tostring(task.queued)
+            .. " succeeded=" .. tostring(task.succeeded)
+            .. " rounds=" .. tostring(task.rounds)
+            .. " emptyCrafts=" .. tostring(task.emptyCrafts or 0))
+    return getText(STOP_TEXT[task.failReason] or "UI_AA_steril_blocked")
 end
 
 local function think(task)
@@ -397,10 +506,46 @@ local function think(task)
     if task.phase == "gathering" then
         task.phase = "crafting"
         AA.reason(task, getText("UI_AA_steril_working"))
-        local queued = queueCrafting(task)
+        local queued, unsettled = queueCrafting(task)
         task.queued = task.queued + queued
+
+        -- Nothing queued, but only because a transfer had not landed yet.
+        -- Come back next tick with the same batch instead of spending a
+        -- re-plan on it. Bounded, so an item that really has gone still
+        -- falls through to the re-plan below.
+        if queued == 0 and unsettled > 0
+                and (task.unsettled or 0) < MAX_UNSETTLED then
+            task.unsettled = (task.unsettled or 0) + 1
+            task.phase = "gathering"
+            return
+        end
+        task.unsettled = 0
+
         if queued == 0 then
-            AA.stop(player, getText("UI_AA_steril_nosupplies"), true)
+            -- The plan was made before the fetching ran, and fetching moves
+            -- the character. Walking to a cupboard changes which containers
+            -- the loot window holds, and containersOf reads that window, so
+            -- a recipe that resolved while standing in front of it can stop
+            -- resolving once the character has stepped away. On a client a
+            -- transfer can also be discarded in silence.
+            --
+            -- Either way the batch is stale, not impossible. Re-plan
+            -- against the world as it is now rather than declaring the
+            -- whole pile untouchable. Bounded, so a pile that genuinely
+            -- cannot be worked still ends rather than spinning.
+            task.emptyCrafts = (task.emptyCrafts or 0) + 1
+            if task.emptyCrafts < MAX_EMPTY_CRAFTS and task.rounds < roundBudget() then
+                print("[AutoAll] sterilize re-planning after an empty craft round ("
+                        .. tostring(task.emptyCrafts) .. "/"
+                        .. tostring(MAX_EMPTY_CRAFTS) .. ")")
+                task.rounds = task.rounds + 1
+                if beginRound(task) then return end
+            end
+
+            task.failReason = task.failReason or "blocked"
+            AA.stop(player, stopText(task), true)
+        else
+            task.emptyCrafts = 0
         end
         return
     end
@@ -456,6 +601,9 @@ function Sterilize.start(player, wanted, label)
         pendingItems = {},
         noProgress   = 0,
         rounds       = 0,
+        emptyCrafts  = 0,
+        unsettled    = 0,
+        failReason   = nil,
         -- A single action that never ends freezes the whole job in
         -- silence: think() is gated on the queue draining, so nothing
         -- is ever said and nothing is written to the log. Reported by
@@ -473,7 +621,7 @@ function Sterilize.start(player, wanted, label)
     AA.startTask(task)
 
     if not beginRound(task) then
-        AA.stop(player, getText("UI_AA_steril_nosupplies"), true)
+        AA.stop(player, stopText(task), true)
     end
 end
 
