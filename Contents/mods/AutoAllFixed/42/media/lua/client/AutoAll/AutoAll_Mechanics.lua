@@ -590,6 +590,30 @@ end
 --- to earn. Only `install` asks this: taking a part off never blocks
 --- anything, and neither does dropping one.
 
+--- Has the job stopped trying on this part for good?
+---
+--- Both of these last for the rest of the run. Out of turns means the whole
+--- car has overtaken it, and unwalkable means the pathfinder gave up on the
+--- square it has to be worked from. Neither is undone by anything except a
+--- successful attempt, which clears the count that caused it.
+local function givenUpOn(task, part)
+    local id = part:getId()
+    if (task.strikes[id] or 0) >= RETRY_LIMIT then return true end
+    if (task.unreachable[id] or 0) >= UNREACHABLE then return true end
+    return false
+end
+
+--- Would this part be workable if the thing standing in front of it came
+--- off? canTakeOff without the one test that is failing right now, which is
+--- the game refusing it because the blocker is still bolted on.
+local function workableOnceCleared(task, part, typeToItem, tagToItem)
+    if givenUpOn(task, part) then return false end
+    if unreachableOnWreck(task.vehicle, part) then return false end
+    if not goodEnough(task.player, part, "uninstall") then return false end
+    if installBlocker(task.player, part, typeToItem, tagToItem) then return false end
+    return true
+end
+
 --- Is this part actually going to be worked on, as opposed to merely
 --- unfinished?
 ---
@@ -624,8 +648,7 @@ local function stillHasWork(task, part, typeToItem, tagToItem)
 
     -- Out of turns, or unwalkable. The rest of the car has overtaken it,
     -- and nothing should be held hostage waiting for it.
-    if (task.strikes[id] or 0) >= RETRY_LIMIT then return false end
-    if (task.unreachable[id] or 0) >= UNREACHABLE then return false end
+    if givenUpOn(task, part) then return false end
 
     if part:getInventoryItem() then
         return payingUninstall(task, part)
@@ -899,9 +922,20 @@ local function candidates(task)
 
     -- Only worth working out when there is nothing better to do: a spent
     -- part that is standing in the way of one that can still pay.
+    --
+    -- The rule, and it is the other half of stillHasWork: a corner is
+    -- finished the moment the job gives up on what the tyre was blocking.
+    -- stillHasWork already stops deferring the tyre's install against a
+    -- brake that is out of retries or unwalkable, so the tyre goes back on -
+    -- and this branch used to take that same tyre straight off again for a
+    -- brake that was never going to be touched, earn nothing for it, and
+    -- leave the wheel in the mud when deadWeight dropped it. So clearing is
+    -- only ever done for a part that would actually be worked on once the
+    -- way is open. If it would not, the tyre goes on and stays on.
     if #out == 0 then
         for index, part in ipairs(sortedParts(vehicle)) do
             if part:getInventoryItem() and payingUninstall(task, part)
+                    and workableOnceCleared(task, part, typeToItem, tagToItem)
                     and not vehicle:canUninstallPart(player, part) then
                 for _, blocker in ipairs(blockersOf(part, "uninstall")) do
                     if blocker:getInventoryItem()
