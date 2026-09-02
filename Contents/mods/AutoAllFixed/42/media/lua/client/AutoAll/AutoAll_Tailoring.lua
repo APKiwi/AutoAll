@@ -632,8 +632,8 @@ local function queueRepairs(task)
                 if not chosen then
                     unmatched = unmatched + 1
                 else
-                    -- The type is what findFabricFor decides; which piece of
-                    -- it goes on this hole is takeFabric's job, so no two
+                    -- findFabricFor decides the type. Which piece of it
+                    -- goes on this hole is takeFabric's job, so no two
                     -- repairs in the round share an instance and get dropped.
                     local piece = takeFabric(task, chosen:getType(), 1)[1]
                     if piece then
