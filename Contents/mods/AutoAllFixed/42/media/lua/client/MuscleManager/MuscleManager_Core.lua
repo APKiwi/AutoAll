@@ -755,6 +755,21 @@ local function isPainkiller(item)
     return item:getFullType() == "Base.Pills" and hasUsesLeft(item)
 end
 
+local MAX_PAIN_LEVEL = 4    -- the top pain moodle level
+
+--- True when a painkiller taken earlier is still working.
+---
+--- A second dose on top of an active one does nothing for the pain and only
+--- stacks the side effects. When the call is not available the answer is
+--- "not active", which is the safe direction: the one-dose-per-session cap
+--- below still bounds it.
+local function painkillerActive(player)
+    local ok, level = pcall(function()
+        return player:getBodyDamage():getPainReductionFromMeds()
+    end)
+    return ok and type(level) == "number" and level > 0
+end
+
 --- True when the item is ours to use right now; otherwise it fetches it and
 --- the next tick uses it from the inventory.
 local function reachFor(state, item, container, worldObject)
@@ -770,15 +785,31 @@ end
 function MM.tryTreatPain(state)
     local player = state.player
     if not MM.opt("treatPain") then return false end
-    if player:getMoodles():getMoodleLevel(MoodleType.PAIN) < MM.opt("painLevel") then return false end
+    local painLevel = player:getMoodles():getMoodleLevel(MoodleType.PAIN)
+    if painLevel < MM.opt("painLevel") then return false end
     if now() - (state.lastTreatAt or 0) < TREAT_COOLDOWN then return false end
     if currentAction(player) then return false end
 
-    if MM.opt("usePills") then
+    -- One painkiller per session.
+    --
+    -- Exercise parks the pain moodle at its threshold for as long as the
+    -- training runs, and the real-time cooldown was the only thing rating
+    -- this, so it swallowed a pill a minute for hours: a drained bottle and
+    -- a stacked dose that does nothing for the pain. A second one is only
+    -- ever taken when the pain has climbed to the top moodle level, and
+    -- never on top of a dose that is still working.
+    --
+    -- Where the pills come from has not changed and does not need to:
+    -- MM.findItem reads the player's own inventory first and only looks at
+    -- nearby bags, crates and the floor when the "useNearby" option is on,
+    -- so a player who turned that off never has a stash raided for pills.
+    local mayDose = (state.pillDoses or 0) < 1 or painLevel >= MAX_PAIN_LEVEL
+    if MM.opt("usePills") and mayDose and not painkillerActive(player) then
         local pills, container, worldObject = MM.findItem(player, isPainkiller)
         if pills then
             if not reachFor(state, pills, container, worldObject) then return true end
             state.lastTreatAt = now()
+            state.pillDoses = (state.pillDoses or 0) + 1
             ISTimedActionQueue.add(ISTakePillAction:new(player, pills))
             MM.say(state, getText("UI_MM_takingPills"), false)
             return true
