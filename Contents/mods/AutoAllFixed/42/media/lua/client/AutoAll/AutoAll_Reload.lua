@@ -37,6 +37,11 @@ local STALL_MS     = 15000  -- no progress for this long means something is wron
 -- (ISLoadBulletsInMagazine's animEvent guards the removal with
 -- `if not isClient()`), and a slow reloader still moves one a second.
 local AMMO_STALL_MS = 12000
+-- The out-of-ammo stop has to hold for this long before it is believed.
+-- Deliberately much shorter than AMMO_STALL_MS so a genuinely empty
+-- inventory still ends the job with "needs ammunition" rather than being
+-- left to time out as a stall.
+local EMPTY_CONFIRM_MS = 3000
 
 -- The queue can also hold an equip or a transfer we asked for, so progress is
 -- measured by counting our own actions rather than the whole queue.
@@ -174,6 +179,12 @@ local function currentItem(task)
     return item
 end
 
+--- A batch cannot be trusted here, so the loop runs one pair at a time.
+--- See the long note inside queueBatch for both cases.
+function Reload.oneAtATime(player)
+    return isClient() or player:getVehicle() ~= nil
+end
+
 --- Queues another run of load/unload pairs.
 local function queueBatch(task)
     local player = task.player
@@ -196,8 +207,7 @@ local function queueBatch(task)
     -- reloading while seated (a driver reloads at 0.8 speed,
     -- ISReloadWeaponAction.setReloadSpeed), so this deliberately does not
     -- refuse the job, it only stops trusting a batch.
-    local seated   = player:getVehicle() ~= nil
-    local pairsLeft = (isClient() or seated) and 1 or BATCH_PAIRS
+    local pairsLeft = Reload.oneAtATime(player) and 1 or BATCH_PAIRS
     local maxCycles = AA.opt("reloadMaxCycles") or 0
     if maxCycles > 0 then
         pairsLeft = math.min(pairsLeft, maxCycles - task.cyclesQueued)
@@ -521,21 +531,39 @@ local function think(task)
 
     local maxCycles = AA.opt("reloadMaxCycles") or 0
     if maxCycles > 0 and task.cycles >= maxCycles then
-        AA.stop(player, getText("UI_AA_reload_done", task.cycles, task.cycles * task.roundsPerCycle), false)
+        AA.stop(player, getText("UI_AA_reload_done", task.cycles, task.moved), false)
         return
     end
 
-    if remaining > REFILL_AT then return end
+    -- Queueing one pair at a time only means one pair if the refill waits
+    -- for the queue to be EMPTY. Gating on REFILL_AT instead let about
+    -- seventeen actions pile up on a client, each holding an item instance
+    -- the server has since replaced, so they failed isValid on
+    -- getPrimaryHandItem and drained at full speed without moving a round -
+    -- which defeated the whole point of the one-pair guard.
+    if Reload.oneAtATime(player) then
+        if AA.isQueueBusy(player) then return end
+    elseif remaining > REFILL_AT then
+        return
+    end
 
     if item:getCurrentAmmoCount() + ammoInInventory(player, item) <= 0 then
-        AA.stop(player, getText("UI_AA_reload_noammo"), true)
+        -- One sample is not proof. On a client the rounds an unload has
+        -- just produced are still in transit, so the count reads zero for
+        -- a moment in the middle of a perfectly healthy cycle. The stop
+        -- only fires once the condition has held for a few ticks.
+        task.emptyAt = task.emptyAt or AA.now()
+        if AA.now() - task.emptyAt > EMPTY_CONFIRM_MS then
+            AA.stop(player, getText("UI_AA_reload_noammo"), true)
+        end
         return
     end
+    task.emptyAt = nil
 
     AA.reason(task, getText("UI_AA_reload_cycling", task.cycles))
 
     if not queueBatch(task) and remaining == 0 then
-        AA.stop(player, getText("UI_AA_reload_done", task.cycles, task.cycles * task.roundsPerCycle), false)
+        AA.stop(player, getText("UI_AA_reload_done", task.cycles, task.moved), false)
     end
 end
 
