@@ -1366,6 +1366,39 @@ local function droppedParts(task)
     return out
 end
 
+--- One round of putting the car down, for an ending that gets no second
+--- chance.
+---
+--- finish() is the thorough version - queue the drops, wait, look again -
+--- and it is only reachable from think(). A safety stop is not: a zombie,
+--- ESC, a movement key or a stall goes through AA.checkSafety straight into
+--- AA.stop, the task is gone, think() never runs again, and the player was
+--- handed back a character at three times their carry weight at the exact
+--- moment something turned up to run from.
+---
+--- So this is hung on the task as onStop. AA.stop clears the action queue
+--- *before* calling it, deliberately, so what is queued here survives.
+--- Favourites are left alone, the same rule the sweep follows.
+local function dropEverythingCarried(task)
+    local player = task.player
+    if not player then return end
+
+    local dropped = 0
+    for _, entry in ipairs(carriedParts(task)) do
+        if not entry.item:isFavorite() then
+            local ok = pcall(function()
+                ISInventoryPaneContextMenu.dropItem(entry.item, player:getPlayerNum())
+            end)
+            if ok then dropped = dropped + 1 end
+        end
+    end
+
+    if dropped > 0 then
+        print("[AutoAll] mechanics stopped holding " .. tostring(dropped)
+                .. " part(s) - queued them onto the floor")
+    end
+end
+
 -- Rounds of dropping before the job stops caring. Three is plenty: a drop
 -- that is going to work works first time.
 local SWEEP_ATTEMPTS = 3
@@ -1706,6 +1739,10 @@ function Mech.start(player, vehicle)
         current   = nil,
         action    = nil,
         think     = think,
+        -- A safety stop never reaches finish(), so the closing sweep would
+        -- never run and the character would be left holding the car. See
+        -- dropEverythingCarried.
+        onStop    = dropEverythingCarried,
         -- The queue is this job's whole heartbeat: think() does nothing
         -- while it is busy. A vanilla ISPathFindAction is built with
         -- maxTime = -1 and an isValid() that is hardcoded true, so a path
