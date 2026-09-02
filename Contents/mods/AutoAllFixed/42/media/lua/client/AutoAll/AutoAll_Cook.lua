@@ -151,20 +151,55 @@ end
 ---------------------------------------------------------------------
 
 --- How far out to look for cupboards, counters and fridges, in tiles.
-local REACH = 2
+--- One, because that is the reach the base game gives a container:
+--- ISObjectClickHandler refuses one that is more than a tile away, on
+--- another floor, or with something solid in between, and only walks you
+--- over when you click it yourself. Nothing here queues that walk.
+local REACH = 1
+
+--- Vanilla's own container reach test, from ISObjectClickHandler: same
+--- floor, one tile at most, and nothing solid between the two squares.
+--- isBlockedTo is what stops food being pulled through a wall.
+local function squareInReach(from, sq)
+    if sq:getZ() ~= from:getZ() then return false end
+    if sq == from then return true end
+    local ok, blocked = pcall(function() return from:isBlockedTo(sq) end)
+    if not ok then return false end
+    return blocked ~= true
+end
+
+--- A crate the player has locked to somebody else. Vanilla's
+--- getContainers drops these from the loot window and the click handler
+--- refuses them, so the sweep has to as well. A test that throws is
+--- treated as locked, because that is the harmless direction.
+local function isLockedContainer(player, object)
+    if not instanceof(object, "IsoThumpable") then return false end
+    local ok, locked = pcall(function() return object:isLockedToCharacter(player) end)
+    if not ok then return true end
+    return locked == true
+end
 
 --- Every container the character can reasonably reach.
 ---
---- ISInventoryPaneContextMenu.getContainers() only returns what the UI is
---- currently showing: the player's own bags plus whatever is open in the
---- loot window. That is why the reports said "the only storage it accesses
---- is the one I am standing in front of" - because that was literally
---- true. Standing between a counter and a fridge, only one of them was in
---- the window, so only one was searched.
+--- The reach model is the base game's, in two parts.
 ---
---- So the squares around the character are scanned as well and any
---- container found on them is added. Duplicates are filtered by identity,
---- since the same container is usually in both lists.
+--- ISInventoryPaneContextMenu.getContainers() is the source: the player's
+--- own bags plus whatever the loot window is showing, already filtered of
+--- IsoThumpables locked to the character. That alone was too narrow -
+--- "the only storage it accesses is the one I am standing in front of"
+--- was literally true, because standing between a counter and a fridge
+--- only one of them was in the window.
+---
+--- So the squares around the character are swept as well, but only the
+--- ones the base game would let you open a container on: adjacent, same
+--- floor, nothing solid in between, and never a crate locked to the
+--- character. Without those tests the sweep read straight through walls
+--- and into locked player storage, and nothing downstream would have
+--- caught it - ISInventoryTransferAction:isValid has no range check, so
+--- any container handed to it is transferred from.
+---
+--- Duplicates are filtered by identity, since the same container is
+--- usually in both lists.
 function Cook.getContainers(player)
     local list = ISInventoryPaneContextMenu.getContainers(player) or ArrayList.new()
 
@@ -181,11 +216,13 @@ function Cook.getContainers(player)
     for dx = -REACH, REACH do
         for dy = -REACH, REACH do
             local sq = cell:getGridSquare(square:getX() + dx, square:getY() + dy, z)
-            if sq then
+            if sq and squareInReach(square, sq) then
                 local objects = sq:getObjects()
                 for j = 0, objects:size() - 1 do
-                    local container = objects:get(j):getContainer()
-                    if container and not seen[container] then
+                    local object = objects:get(j)
+                    local container = object:getContainer()
+                    if container and not seen[container]
+                            and not isLockedContainer(player, object) then
                         seen[container] = true
                         list:add(container)
                     end
