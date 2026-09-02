@@ -188,7 +188,13 @@ local function disinfectantScore(item)
             -- is the only class where IsDrainable() is not a hardcoded
             -- false.
             local uses = item:getCurrentUsesFloat()
-            if type(uses) == "number" then return uses end
+            if type(uses) == "number" then
+                -- An empty bottle scores 0, and 0 is truthy in Lua, so
+                -- bestOf would happily pick it and queue a disinfect that
+                -- has nothing to disinfect with. Not eligible at all.
+                if uses <= 0 then return nil end
+                return uses
+            end
             return 0.5
         end
         return nil
@@ -197,12 +203,26 @@ local function disinfectantScore(item)
     return nil
 end
 
+--- A dressing vanilla scores as worthless. ISApplyBandage:complete does
+--- `if string.match(type, "Dirty") then bandageLife = 0 end`, so a dirty
+--- bandage is applied, lasts no time at all, risks infecting the wound and
+--- - because bandaged() is now true - hides the part from the survey and
+--- from every vanilla handler. Never worth doing on the player's behalf.
+local function isDirtyBandage(item)
+    local ok, dirty = pcall(function()
+        local t = item:getType()
+        return t ~= nil and string.match(t, "Dirty") ~= nil
+    end)
+    return ok and dirty == true
+end
+
 --- HApplyBandage:checkItem is getBandagePower() > 0. The ranking on top
 --- of it is ours, and it is the point of the feature - see the header.
 local function bandageScore(item)
     local ok, score = pcall(function()
         local power = item:getBandagePower()
         if not power or power <= 0 then return nil end
+        if isDirtyBandage(item) then return nil end
         if item:isAlcoholic() then return 1000 + power end
         return power
     end)
@@ -210,12 +230,32 @@ local function bandageScore(item)
     return nil
 end
 
+--- The dirty ones bandageScore just refused, so the ending can say "no
+--- clean bandage" rather than the flatly wrong "nothing within reach".
+local function dirtyBandageScore(item)
+    local ok, score = pcall(function()
+        local power = item:getBandagePower()
+        if not power or power <= 0 then return nil end
+        if not isDirtyBandage(item) then return nil end
+        return power
+    end)
+    if ok then return score end
+    return nil
+end
+
 --- HCleanBurn:checkItem is getBandagePower() >= 2.
+---
+--- Alcoholic ranks BELOW plain here, the opposite of bandageScore. Washing
+--- a burn consumes the cloth through UseAndSync and gains nothing from the
+--- alcohol, while the bandage step needs it: isAlcoholic() is the fourth
+--- argument to SetBandaged and the only thing marking a dressing as
+--- disinfected. Preferring the sterilised cloth for the wash spent it here
+--- and left the open wound the plain one.
 local function burnWashScore(item)
     local ok, score = pcall(function()
         local power = item:getBandagePower()
         if not power or power < 2 then return nil end
-        if item:isAlcoholic() then return 1000 + power end
+        if item:isAlcoholic() then return power - 1000 end
         return power
     end)
     if ok then return score end
