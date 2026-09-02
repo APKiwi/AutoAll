@@ -96,10 +96,27 @@ local function recipesFor(player, base, containerList)
     return out, water
 end
 
+--- Puts one item on the rows, grouped by full type rather than listed
+--- item by item: eight tomatoes are one line saying eight, not eight
+--- lines saying tomato.
+local function collectRow(rows, byType, item)
+    local fullType = item:getFullType()
+    local row = byType[fullType]
+    if not row then
+        row = {
+            fullType  = fullType,
+            name      = item:getDisplayName(),
+            texture   = item:getTexture(),
+            available = 0,
+            limit     = nil,        -- nil = auto
+        }
+        byType[fullType] = row
+        table.insert(rows, row)
+    end
+    row.available = row.available + 1
+end
+
 --- One row per ingredient type, with how many of it are within reach.
----
---- Grouped by full type rather than listed item by item: eight tomatoes
---- are one line saying eight, not eight lines saying tomato.
 local function ingredientRows(player, base, recipe, containerList)
     local rows, byType = {}, {}
 
@@ -107,21 +124,157 @@ local function ingredientRows(player, base, recipe, containerList)
     if not items then return rows end
 
     for i = 0, items:size() - 1 do
-        local item = items:get(i)
-        local fullType = item:getFullType()
-        local row = byType[fullType]
-        if not row then
-            row = {
-                fullType  = fullType,
-                name      = item:getDisplayName(),
-                texture   = item:getTexture(),
-                available = 0,
-                limit     = nil,        -- nil = auto
-            }
-            byType[fullType] = row
-            table.insert(rows, row)
+        collectRow(rows, byType, items:get(i))
+    end
+
+    table.sort(rows, function(a, b) return a.name < b.name end)
+    return rows
+end
+
+---------------------------------------------------------------------
+-- rows for a dish the pot has to be filled for first
+--
+-- getItemsCanBeUse is the right answer for a dish the game will already
+-- run, and no answer at all for a pot that is still empty: it returns an
+-- empty list before it has looked at a single ingredient (the water
+-- notes in AutoAll_Cook.lua have the three methods and why). That is why
+-- this window showed nothing for Soup while the context menu was happily
+-- offering it.
+--
+-- Nothing on EvolvedRecipe walks past that gate for us. Read off the
+-- bytecode:
+--
+--   getPossibleItems()        the recipe's own item list, as ItemRecipe
+--                             entries. No character and no containers in
+--                             it, so it says what a soup is made of and
+--                             never what is in this kitchen.
+--   isItemUsableInRecipe()    calls getItemsCanBeUse again. Same gate,
+--                             same empty answer.
+--   getItemRecipe(item)       the ItemRecipe for that item's type, or
+--                             nil. Ungated, and it is the very lookup
+--                             the private checkItemCanBeUse keys on.
+--
+-- So the rows are built the way checkItemCanBeUse builds them, one item
+-- at a time, with getItemRecipe as the membership test. Nothing in that
+-- method looks at the water, which is what makes this honest: filling
+-- the pot opens the gate and changes no per item answer.
+--
+-- Where a test cannot be read the item is dropped rather than kept. A
+-- row the cooking loop then refuses is a promise the window broke, while
+-- a missing row is only a missing row.
+---------------------------------------------------------------------
+
+-- Vanilla's own bar for cooking with food that has turned, straight out
+-- of checkItemCanBeUse.
+local ROTTEN_LEVEL = 7
+
+--- The recipe's canAddSpicesEmpty flag, which is a public field with no
+--- getter on the class. Unreadable counts as off, which only ever leaves
+--- seasonings off the list.
+local function canAddSpicesEmpty(recipe)
+    local ok, value = pcall(function() return recipe.canAddSpicesEmpty end)
+    return ok and value == true
+end
+
+--- Would getItemsCanBeUse hand this item back once the pot is filled?
+local function acceptsItem(player, base, recipe, item, cookingLevel)
+    local ok, usable = pcall(function()
+        local entry = recipe:getItemRecipe(item)
+        if not entry then return false end
+        if item:isNoRecipes(player) then return false end
+
+        -- The pot is the base item rather than the dish while it is
+        -- still empty, so this is false here. Asked anyway, because it is
+        -- what decides whether a seasoning is a repeat.
+        local isResult = recipe:isResultItem(base)
+        local food = instanceof(item, "Food") and item or nil
+        local allowed = false
+
+        if food then
+            -- -1 in the recipe's own item list means listed but not
+            -- usable. Only Food is held to it.
+            local use = entry:getUse()
+            if type(use) == "number" and use == -1 then return false end
+
+            if food:isSpice() then
+                if isResult then
+                    allowed = not recipe:isSpiceAdded(base, item)
+                elseif canAddSpicesEmpty(recipe) then
+                    allowed = true
+                end
+                if food:isBurnt() then
+                    allowed = false
+                elseif food:isRotten() and cookingLevel < ROTTEN_LEVEL then
+                    allowed = false
+                end
+            elseif not base:haveExtraItems()
+                    or base:getExtraItems():size() < recipe:getMaxItems() then
+                if food:isBurnt() then
+                    allowed = false
+                elseif not food:isRotten() or cookingLevel >= ROTTEN_LEVEL then
+                    allowed = true
+                end
+            end
+
+            if food:isFrozen() and not recipe:isAllowFrozenItem() then
+                allowed = false
+            end
+        elseif item:isSpice() then
+            if isResult then
+                allowed = not recipe:isSpiceAdded(base, item)
+            elseif canAddSpicesEmpty(recipe) then
+                allowed = true
+            end
+        else
+            allowed = true
         end
-        row.available = row.available + 1
+
+        return allowed
+    end)
+
+    return ok and usable == true
+end
+
+--- Every container the recipe would be searched in: the sweep, plus the
+--- character's own inventory, which getItemsCanBeUse adds for itself
+--- before it looks at anything.
+local function containersFor(player, containerList)
+    local out, seen = {}, {}
+
+    if containerList then
+        for i = 0, containerList:size() - 1 do
+            local container = containerList:get(i)
+            if container and not seen[container] then
+                seen[container] = true
+                table.insert(out, container)
+            end
+        end
+    end
+
+    local own = player:getInventory()
+    if own and not seen[own] then table.insert(out, own) end
+    return out
+end
+
+--- The same rows, for a dish that gets its water first.
+local function waterIngredientRows(player, base, recipe, containerList)
+    local rows, byType = {}, {}
+
+    local level = 0
+    local ok, perk = pcall(function() return player:getPerkLevel(Perks.Cooking) end)
+    if ok and type(perk) == "number" then level = perk end
+
+    for _, container in ipairs(containersFor(player, containerList)) do
+        local items = container:getItems()
+        if items then
+            for i = 0, items:size() - 1 do
+                local item = items:get(i)
+                if item and item ~= base
+                        and acceptsItem(player, base, recipe, item, level) then
+                    collectRow(rows, byType, item)
+                end
+            end
+        end
     end
 
     table.sort(rows, function(a, b) return a.name < b.name end)
@@ -444,7 +597,11 @@ function CookUI:refreshIngredients()
     if not recipe then return end
 
     local containerList = Cook.getContainers(self.player)
-    self.rows = ingredientRows(self.player, self.base, recipe, containerList)
+    if self:getsWater(recipe) then
+        self.rows = waterIngredientRows(self.player, self.base, recipe, containerList)
+    else
+        self.rows = ingredientRows(self.player, self.base, recipe, containerList)
+    end
 
     for _, row in ipairs(self.rows) do
         local remembered = self.limits[row.fullType]
