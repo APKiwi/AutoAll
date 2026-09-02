@@ -152,6 +152,54 @@ local function countOurActions(player)
     return count
 end
 
+--- Hands out fabric instances, one per repair, and never the same one
+--- twice while its repair is still waiting in the queue.
+---
+--- One instance cannot carry two repairs. ISRepairClothing:isValid asks
+--- `containsID(self.fabric:getID())` and complete() removes that exact
+--- instance, so the first repair spends it and every later one queued
+--- against it is silently dropped when its turn comes. Vanilla's own bulk
+--- path, ISInventoryPaneContextMenu.repairAllClothing, walks
+--- `fabricArray:get(successfulActionsAdded)` for this reason.
+---
+--- A reservation is released by asking the inventory whether the instance
+--- is still there: one that has been sewn on is gone, one still waiting in
+--- a deep queue is not.
+---
+--- Returns fewer than `count` - possibly none - when that is all there is.
+local function takeFabric(task, fabricType, count)
+    local out = {}
+    if not fabricType or count <= 0 then return out end
+
+    local inventory = task.player:getInventory()
+    if not inventory then return out end
+
+    task.reserved = task.reserved or {}
+    for id in pairs(task.reserved) do
+        local ok, still = pcall(function() return inventory:getItemById(id) end)
+        if not ok or not still then task.reserved[id] = nil end
+    end
+
+    local ok, items = pcall(function()
+        return inventory:getAllEvalRecurse(function(item)
+            return item:getType() == fabricType
+        end, ArrayList.new())
+    end)
+    if not ok or not items then return out end
+
+    for i = 0, items:size() - 1 do
+        if #out >= count then break end
+        local item = items:get(i)
+        local id = item:getID()
+        if not task.reserved[id] then
+            task.reserved[id] = true
+            table.insert(out, item)
+        end
+    end
+
+    return out
+end
+
 --- Queues a whole cycle at once: a patch on every bare part, then an
 --- unpick for every one of them.
 ---
@@ -165,18 +213,39 @@ local function queueCycle(task)
 
     local needle = Tailor.findNeedle(player)
     local thread = Tailor.findThread(player)
-    local fabric = AA.findItem(player, task.fabricType)
-    if not needle or not thread or not fabric then return false end
+    if not needle or not thread then return false end
+
+    -- Asked again every cycle rather than frozen at the start of the
+    -- session. With the fabric option on "any, cheapest first" the sheets
+    -- running out used to end the job as "no fabric" with three hundred
+    -- denim strips still in the pack.
+    local fabric = Tailor.findFabric(player)
+    if not fabric then return false end
+    task.fabricType = fabric:getType()
+
+    local toPatch = {}
+    for _, part in ipairs(sewingOrder(task)) do
+        if clothing:getPatchType(part) == nil then
+            table.insert(toPatch, part)
+        end
+    end
+
+    -- One instance per patch, so every patch in the cycle actually lands.
+    local fabrics = takeFabric(task, task.fabricType, #toPatch)
 
     local queued = 0
     local toUnpick = {}
 
-    for _, part in ipairs(sewingOrder(task)) do
-        if clothing:getPatchType(part) == nil then
-            ISInventoryPaneContextMenu.repairClothing(player, clothing, part, fabric, thread, needle)
-            queued = queued + 1
-        end
+    for index, part in ipairs(toPatch) do
+        local piece = fabrics[index]
+        if not piece then break end
+        ISInventoryPaneContextMenu.repairClothing(player, clothing, part, piece, thread, needle)
+        -- Only what this cycle patched. Collecting every covered part here
+        -- unpicked the patches the player had made before the job, and
+        -- ISRemovePatch only hands the fabric back on a chance roll, so
+        -- that material was usually gone.
         table.insert(toUnpick, part)
+        queued = queued + 1
     end
 
     for _, part in ipairs(toUnpick) do
@@ -254,7 +323,9 @@ local function think(task)
         AA.stop(player, getText("UI_AA_tailor_nothread"), true)
         return
     end
-    if not AA.findItem(player, task.fabricType) then
+    -- Asked across every allowed type, not just the one the session
+    -- started on. See the note in queueCycle.
+    if not Tailor.findFabric(player) then
         AA.stop(player, getText("UI_AA_tailor_nofabric"), true)
         return
     end
