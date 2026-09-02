@@ -854,9 +854,9 @@ local PRIORITY = { drop = 1, install = 2, uninstall = 3, clear = 4 }
 --- Five keys, in this order:
 ---
 ---   1. dropping, ahead of everything including the retry pin - weight is
----      the one thing this job has no other defence against;
+---      the one thing this job has no other defence against,
 ---   2. a corner with a part of ours on the ground at it, because walking
----      away from that floor square loses the part for good;
+---      away from that floor square loses the part for good,
 ---   3. the part that just failed, if any - the character stays on it
 ---      until it gives rather than wandering off round the car;
 ---   4. fewest failures, so once a part has had its RETRY_LIMIT turns the
