@@ -156,7 +156,7 @@ function Rip.hasRipTag(item)
 end
 
 -- How far up the container chain to look for a body. A garment in a bag in
--- a bag on a corpse is two steps; the bound is only here so a malformed
+-- a bag on a corpse is two steps. The bound is only here so a malformed
 -- chain cannot spin.
 local MAX_CONTAINER_DEPTH = 8
 
