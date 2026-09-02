@@ -155,6 +155,43 @@ function Rip.hasRipTag(item)
     return false
 end
 
+-- How far up the container chain to look for a body. A garment in a bag in
+-- a bag on a corpse is two steps. The bound is only here so a malformed
+-- chain cannot spin.
+local MAX_CONTAINER_DEPTH = 8
+
+--- True when anything up the chain that owns this container is a corpse.
+---
+--- ItemContainer.getParent() answers for the immediate owner only, and that
+--- is the hole this closes. A garment inside a backpack the corpse is
+--- wearing sits in the BAG's container, whose parent is not the body - so
+--- the garment never read as being on a corpse, protected() judged it by the
+--- player's own rules, and the destination became the corpse's own bag with
+--- every ripped sheet going straight back into it.
+---
+--- So walk instead: this container -> the item that container is
+--- (getContainingItem) -> the container that item sits in -> its parent, and
+--- round again.
+local function ownedByDeadBody(container)
+    local depth = 0
+    while container and depth < MAX_CONTAINER_DEPTH do
+        depth = depth + 1
+
+        local gotParent, parent = pcall(function() return container:getParent() end)
+        if gotParent and parent and instanceof(parent, "IsoDeadBody") then return true end
+
+        -- Not a body. If this container is a bag, step out into whatever the
+        -- bag itself is sitting in and ask the same question again.
+        local gotBag, bag = pcall(function() return container:getContainingItem() end)
+        if not gotBag or not bag then return false end
+
+        local gotOuter, outer = pcall(function() return bag:getContainer() end)
+        if not gotOuter then return false end
+        container = outer
+    end
+    return false
+end
+
 --- True for clothing still on a dead body.
 ---
 --- This is the "it says the clothes are worn but they are lying in a
@@ -175,14 +212,14 @@ end
 --- RipDenimClothing both carry the IsNotWorn input flag - so it is not
 --- enough to stop protecting it. It has to come off the body first, which
 --- is what the looting phase does.
+--- Asked of the whole container chain, not just the immediate parent: see
+--- ownedByDeadBody for the bag-on-a-corpse case that used to slip through.
 function Rip.onCorpse(item)
     if not item then return false end
-    local container = item:getContainer()
-    if not container then return false end
 
-    local ok, parent = pcall(function() return container:getParent() end)
-    if not ok or not parent then return false end
-    return instanceof(parent, "IsoDeadBody") == true
+    local ok, container = pcall(function() return item:getContainer() end)
+    if not ok or not container then return false end
+    return ownedByDeadBody(container)
 end
 
 -- Answers from CraftRecipeManager, keyed by item type, for the length of
@@ -578,13 +615,47 @@ end
 --- This is what makes the finish message a count of real work rather than
 --- a count of actions queued, and it is what stops a job looping over a
 --- pile it cannot actually process.
+--- Files away whatever the round that has just finished actually made.
+---
+--- Anything in the inventory that was not there the instant before the
+--- crafts went out came out of one of them. Recorded per round rather than
+--- worked out once at the end, because a job runs many rounds and fetches
+--- more garments between them - see returnResults for what that cost.
+local function recordProduced(task)
+    local before = task.roundBefore
+    task.roundBefore = nil
+    if not before then return end
+
+    local items = task.player:getInventory():getItems()
+    for i = 0, items:size() - 1 do
+        local item = items:get(i)
+        if item and not before[item] then
+            task.produced[item] = true
+        end
+    end
+end
+
 local function confirmPendingCrafts(task)
-    if #task.pendingItems == 0 then return true end
+    if #task.pendingItems == 0 then
+        -- No craft went out this round, so nothing that has turned up in the
+        -- inventory since the snapshot came from this job. Throw the
+        -- snapshot away rather than filing a gathering transfer as a result.
+        task.roundBefore = nil
+        return true
+    end
+
+    recordProduced(task)
 
     local succeeded = 0
     for _, item in ipairs(task.pendingItems) do
         if not item:getContainer() then succeeded = succeeded + 1 end
     end
+
+    -- The same count decides whether the next batch may be bigger. Without
+    -- this call AA.batchSize never leaves one, so on a client every round
+    -- was a single craft for the whole job however well the server kept up -
+    -- which is a wardrobe one garment at a time. Dismantle already does it.
+    AA.batchFeedback(task, #task.pendingItems, succeeded)
 
     task.pendingItems = {}
     task.succeeded = task.succeeded + succeeded
@@ -632,9 +703,24 @@ end
 --- character loaded down.
 ---
 --- Which items are "the results" is worked out by comparing the inventory
---- against the snapshot rather than against a list of expected outputs:
+--- against a snapshot rather than against a list of expected outputs:
 --- RipDenimClothing picks its output through an itemMapper, and a modded
 --- recipe could produce anything at all.
+---
+--- The comparison is now per craft round (task.produced, filled in by
+--- recordProduced) rather than the one snapshot taken before the first
+--- craft. Against that single snapshot everything the job had not put there
+--- itself looked like a result, and got shipped into the wardrobe: whatever
+--- the player picked up while the job ran, every looted garment the rounds
+--- never reached, every prefetched one - and a pair of scissors borrowed in
+--- a later round, which got returnSupplies' transfer queued and then a
+--- second transfer into the wardrobe stacked on top of it.
+---
+--- Belt and braces on top of that: never send a borrowed supply, and never
+--- send anything that was in the inventory when the job started. task.before
+--- may be nil - it is only set once a crafting round has actually run, and a
+--- job that loots and then cannot plan reaches here without it - so it is
+--- read defensively rather than indexed blind.
 local function returnResults(task)
     if not AA.opt("ripResultsToSource") then return end
 
@@ -643,10 +729,19 @@ local function returnResults(task)
     local inventory = player:getInventory()
     if not dest or dest == inventory then return end
 
+    local borrowed = {}
+    for _, entry in ipairs(task.borrowedFrom) do
+        if entry.item then borrowed[entry.item] = true end
+    end
+
+    local before = task.before
     local items = inventory:getItems()
     for i = 0, items:size() - 1 do
         local item = items:get(i)
-        if item and not task.before[item] and not protected(player, item) then
+        if item and task.produced[item]
+                and not borrowed[item]
+                and not (before and before[item])
+                and not protected(player, item) then
             ISTimedActionQueue.add(ISInventoryTransferAction:new(player, item, inventory, dest))
         end
     end
@@ -811,25 +906,91 @@ local function planRound(task)
         room = math.min(room or clientCap, clientCap)
     end
 
+    -- Bound the batch by what the character can still carry.
+    --
+    -- Nothing did, before this. `room` is nil whenever ripMax is 0, which is
+    -- the default, and AA.batchSize answers nil off a client - so in single
+    -- player with the cap off the batch was the whole group. A forty garment
+    -- wardrobe was transferred into the inventory before the first craft ran,
+    -- the character was instantly overloaded, and an overloaded character
+    -- loses health for as long as it stays that way: stopDamage then killed
+    -- the job and left the player carrying the wardrobe. Same bound
+    -- queueLooting already applies to stripping bodies.
+    --
+    -- Only garments that are not already carried count against it. The ones
+    -- in the inventory are on the scale already, and refusing them would
+    -- stall a job that has everything it needs in hand.
+    local inventory = player:getInventory()
+    local gotCarry, carry = pcall(function()
+        return player:getMaxWeight() - player:getInventoryWeight()
+    end)
+    if not gotCarry or type(carry) ~= "number" then carry = 0 end
+
+    -- Which of the two dead ends this round hits, if it hits one. Mirrors
+    -- Auto Dismantle's sawRecipe: groupByRecipe only ever returns groups the
+    -- engine gave a recipe for, so a group whose logic will not run is the
+    -- missing tool, and no workable group at all is the pile. Without it
+    -- every dead end reported the generic "blocked", and UI_AA_rip_notool -
+    -- which has no other assignment anywhere in this file - was never once
+    -- shown to a player who genuinely had no scissors.
+    local sawRecipe = false
+
+    local full = false
     for _, group in ipairs(groupByRecipe(player, items, containers)) do
+        if full then break end
+
         local logic = buildLogic(player, group.items[1], group.recipe)
-        if logic:canPerformCurrentRecipe() then
+        if not logic:canPerformCurrentRecipe() then
+            sawRecipe = true
+        else
             local possible = logic:getPossibleCraftCount(true) or 0
             local doable = math.min(possible, #group.items)
             if room then doable = math.min(doable, room - #batch) end
 
             if doable > 0 then
+                local took = 0
                 for i = 1, doable do
-                    table.insert(batch, group.items[i])
+                    local item = group.items[i]
+
+                    local weight = 0
+                    if item:getContainer() ~= inventory then
+                        local gotWeight, value = pcall(function() return item:getWeight() end)
+                        if gotWeight and type(value) == "number" then weight = value end
+                    end
+
+                    -- At least one garment always goes, however loaded the
+                    -- character already is: it is about to become something
+                    -- lighter, so refusing it outright is how a job with work
+                    -- left to do would stall instead.
+                    if #batch > 0 and (carry - weight) < 0 then
+                        full = true
+                        break
+                    end
+
+                    carry = carry - weight
+                    table.insert(batch, item)
+                    took = took + 1
                 end
-                for _, item in ipairs(borrowedSupplies(player, logic)) do
-                    table.insert(supplies, item)
+
+                if took > 0 then
+                    for _, item in ipairs(borrowedSupplies(player, logic)) do
+                        table.insert(supplies, item)
+                    end
                 end
             end
         end
     end
 
-    if #batch == 0 then return false end
+    if #batch == 0 then
+        -- Something had a recipe but the logic would not run it: that is the
+        -- tool. Nothing workable at all: that is the pile.
+        task.failReason = sawRecipe and "notool" or "blocked"
+        return false
+    end
+
+    -- A round that planned real work clears whatever an earlier round
+    -- recorded, so a later dead end is not reported with a stale reason.
+    task.failReason = nil
 
     -- Fetch ahead of the batch.
     --
@@ -846,15 +1007,15 @@ local function planRound(task)
     local inBatch = {}
     for _, item in ipairs(batch) do inBatch[item] = true end
 
+    -- Carries on from the batch's own budget rather than reading the
+    -- headroom again. The batch is fetched in the very same gathering pass,
+    -- so re-reading here spent the same pounds twice and the two together
+    -- could still overload the character the batch alone would not have.
     local prefetch = {}
-    local gotCarry, carry = pcall(function()
-        return player:getMaxWeight() - player:getInventoryWeight()
-    end)
-    if not gotCarry or type(carry) ~= "number" then carry = 0 end
 
     for _, ahead in ipairs(items) do
         if #prefetch >= PREFETCH then break end
-        if not inBatch[ahead] and ahead:getContainer() ~= player:getInventory() then
+        if not inBatch[ahead] and ahead:getContainer() ~= inventory then
             local weight = 0
             local gotWeight, value = pcall(function() return ahead:getWeight() end)
             if gotWeight and type(value) == "number" then weight = value end
@@ -883,6 +1044,9 @@ local function planRound(task)
         -- Nothing had to be fetched, so there is nothing to wait for.
         task.phase = "crafting"
         if not task.before then task.before = snapshot(player) end
+        -- A second, per-round snapshot: what this round's crafts add to the
+        -- inventory is what this round produced. See recordProduced.
+        task.roundBefore = snapshot(player)
         local queued = queueCrafting(task)
         task.queued = task.queued + queued
         return queued > 0
@@ -948,6 +1112,8 @@ local function think(task)
         -- snapshot, or the strips made so far would look like they were
         -- always there and would never be sent home.
         if not task.before then task.before = snapshot(player) end
+        -- And a per-round one, for what this round's crafts produce.
+        task.roundBefore = snapshot(player)
         local queued, unsettled = queueCrafting(task)
         task.queued = task.queued + queued
 
@@ -1003,6 +1169,20 @@ local function think(task)
     end
 
     AA.stop(player, getText("UI_AA_rip_done", task.succeeded), false)
+end
+
+--- The container an item came from, when that is somewhere worth sending the
+--- results back to. Never a corpse, and never a bag a corpse is wearing:
+--- putting fresh rags into the body they came off is losing them, not
+--- sending them home. buildRipMenu already makes this check on the item the
+--- player clicked - the fallback below is the one place that took the raw
+--- container without asking.
+local function sourceContainer(item)
+    if not item or Rip.onCorpse(item) then return nil end
+
+    local ok, container = pcall(function() return item:getContainer() end)
+    if not ok then return nil end
+    return container
 end
 
 function Rip.start(player, fullType, label, destination)
@@ -1062,8 +1242,12 @@ function Rip.start(player, fullType, label, destination)
         -- Where the strips go at the end. Falls back to the container the
         -- first of the batch came from when the option was used on
         -- something already in the inventory.
-        destination  = destination or (items[1] and items[1]:getContainer()),
+        destination  = destination or sourceContainer(items[1]),
         before       = nil,
+        -- Snapshot taken around each craft round, and the set of items those
+        -- rounds actually made. Only these go to the destination.
+        roundBefore  = nil,
+        produced     = {},
         queued       = 0,
         succeeded    = 0,
         pendingItems = {},

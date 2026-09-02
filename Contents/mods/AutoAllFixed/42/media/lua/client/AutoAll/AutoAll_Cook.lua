@@ -151,20 +151,55 @@ end
 ---------------------------------------------------------------------
 
 --- How far out to look for cupboards, counters and fridges, in tiles.
-local REACH = 2
+--- One, because that is the reach the base game gives a container:
+--- ISObjectClickHandler refuses one that is more than a tile away, on
+--- another floor, or with something solid in between, and only walks you
+--- over when you click it yourself. Nothing here queues that walk.
+local REACH = 1
+
+--- Vanilla's own container reach test, from ISObjectClickHandler: same
+--- floor, one tile at most, and nothing solid between the two squares.
+--- isBlockedTo is what stops food being pulled through a wall.
+local function squareInReach(from, sq)
+    if sq:getZ() ~= from:getZ() then return false end
+    if sq == from then return true end
+    local ok, blocked = pcall(function() return from:isBlockedTo(sq) end)
+    if not ok then return false end
+    return blocked ~= true
+end
+
+--- A crate the player has locked to somebody else. Vanilla's
+--- getContainers drops these from the loot window and the click handler
+--- refuses them, so the sweep has to as well. A test that throws is
+--- treated as locked, because that is the harmless direction.
+local function isLockedContainer(player, object)
+    if not instanceof(object, "IsoThumpable") then return false end
+    local ok, locked = pcall(function() return object:isLockedToCharacter(player) end)
+    if not ok then return true end
+    return locked == true
+end
 
 --- Every container the character can reasonably reach.
 ---
---- ISInventoryPaneContextMenu.getContainers() only returns what the UI is
---- currently showing: the player's own bags plus whatever is open in the
---- loot window. That is why the reports said "the only storage it accesses
---- is the one I am standing in front of" - because that was literally
---- true. Standing between a counter and a fridge, only one of them was in
---- the window, so only one was searched.
+--- The reach model is the base game's, in two parts.
 ---
---- So the squares around the character are scanned as well and any
---- container found on them is added. Duplicates are filtered by identity,
---- since the same container is usually in both lists.
+--- ISInventoryPaneContextMenu.getContainers() is the source: the player's
+--- own bags plus whatever the loot window is showing, already filtered of
+--- IsoThumpables locked to the character. That alone was too narrow -
+--- "the only storage it accesses is the one I am standing in front of"
+--- was literally true, because standing between a counter and a fridge
+--- only one of them was in the window.
+---
+--- So the squares around the character are swept as well, but only the
+--- ones the base game would let you open a container on: adjacent, same
+--- floor, nothing solid in between, and never a crate locked to the
+--- character. Without those tests the sweep read straight through walls
+--- and into locked player storage, and nothing downstream would have
+--- caught it - ISInventoryTransferAction:isValid has no range check, so
+--- any container handed to it is transferred from.
+---
+--- Duplicates are filtered by identity, since the same container is
+--- usually in both lists.
 function Cook.getContainers(player)
     local list = ISInventoryPaneContextMenu.getContainers(player) or ArrayList.new()
 
@@ -181,11 +216,13 @@ function Cook.getContainers(player)
     for dx = -REACH, REACH do
         for dy = -REACH, REACH do
             local sq = cell:getGridSquare(square:getX() + dx, square:getY() + dy, z)
-            if sq then
+            if sq and squareInReach(square, sq) then
                 local objects = sq:getObjects()
                 for j = 0, objects:size() - 1 do
-                    local container = objects:get(j):getContainer()
-                    if container and not seen[container] then
+                    local object = objects:get(j)
+                    local container = object:getContainer()
+                    if container and not seen[container]
+                            and not isLockedContainer(player, object) then
                         seen[container] = true
                         list:add(container)
                     end
@@ -254,11 +291,12 @@ local function isAllowed(task, recipe, item)
 
     if food:isFrozen() and not recipe:isAllowFrozenItem() then return false end
 
-    -- A skilled cook knows what to do with the sad end of the pantry.
+    -- The tickbox wins outright, whatever the skill slider says. Cooking
+    -- skill does not make rotten, burnt or tainted food safe to eat, and
+    -- the option's own tooltip promises "never". The slider can only let
+    -- these in once the player has unticked the option as well.
     -- Poison is never on the table, however good you are.
-    local skilled = task.badIngredients
-
-    if AA.opt("cookSkipRotten") and not skilled then
+    if AA.opt("cookSkipRotten") then
         if food:isRotten() or food:isBurnt() or food:isTainted() then return false end
     end
 
@@ -397,16 +435,18 @@ function Cook.pickNext(task, recipe, containerList)
         if isAllowed(task, recipe, item) and (spicesOn or not isScriptSpice(item)) then
             if isSpiceItem(item) then
                 -- One of each spice, never the same one twice - unless the
-                -- setup window asked for a different number.
+                -- setup window asked for a different number. Read straight
+                -- off the plan rather than through allowanceFor, whose
+                -- fallback is the "same type at most" option and let an
+                -- unnamed seasoning in twice.
+                local limit = task.limits and task.limits[item:getFullType()]
+                if limit == nil then limit = 1 end
                 if spicesOn and spice == nil and task.spices < spiceMax
-                        and (task.usedTypes[item:getFullType()] or 0) < math.max(1, allowanceFor(task, item))
-                        and allowanceFor(task, item) > 0 then
+                        and limit > 0
+                        and (task.usedTypes[item:getFullType()] or 0) < limit then
                     spice = item
                 end
             elseif roomForFood and (task.usedTypes[item:getFullType()] or 0) < allowanceFor(task, item) then
-                if unhappyOf(item) <= 0 then
-                    hasKindOption = true
-                end
                 local score = scoreOf(task, item)
                 if isScriptSpice(item) then
                     -- Still a seasoning, however many calories it carries.
@@ -414,8 +454,18 @@ function Cook.pickNext(task, recipe, containerList)
                             and (spiceFoodScore == nil or score > spiceFoodScore) then
                         spiceFood, spiceFoodScore = item, score
                     end
-                elseif foodScore == nil or score > foodScore then
-                    food, foodScore = item, score
+                else
+                    -- Only a real ingredient counts as a pleasant option.
+                    -- A seasoning cannot be one: the re-scan below skips
+                    -- script spices, so a jar of sugar marking the flag
+                    -- threw away the potatoes and then found nothing to
+                    -- replace them with, and the dish came out as sugar.
+                    if unhappyOf(item) <= 0 then
+                        hasKindOption = true
+                    end
+                    if foodScore == nil or score > foodScore then
+                        food, foodScore = item, score
+                    end
                 end
             end
         end
@@ -578,14 +628,26 @@ local function pendingReturns(task)
     return out
 end
 
+--- Does this character put the leftovers back at all?
+---
+--- Vanilla's own rule, kept: a disorganized character does not tidy up
+--- after itself. ISCraftingUI.ReturnItemToContainer opens with the same
+--- test, and honouring it is the difference between automating the
+--- clicking and rewriting the trait.
+---
+--- Asked before the returning phase starts, not only inside it. Queueing
+--- nothing and then waiting for the ingredients to arrive home is how a
+--- Disorganized cook burned every return attempt and ended on a red
+--- "Could not put N ingredients back" with the "Meal ready" thrown away.
+local function willReturnItems(player)
+    if not AA.opt("cookReturnItems") then return false end
+    return not player:hasTrait(CharacterTrait.DISORGANIZED)
+end
+
 local function queueReturns(task)
     local player = task.player
 
-    -- Vanilla's own rule, kept: a disorganized character does not tidy up
-    -- after itself. ISCraftingUI.ReturnItemToContainer opens with the same
-    -- test, and honouring it is the difference between automating the
-    -- clicking and rewriting the trait.
-    if player:hasTrait(CharacterTrait.DISORGANIZED) then return 0 end
+    if not willReturnItems(player) then return 0 end
 
     local pending = pendingReturns(task)
     for _, entry in ipairs(pending) do
@@ -609,7 +671,7 @@ end
 --- The dish is done. Hand over to the returning phase instead of
 --- stopping outright, so the leftovers can be chased up.
 local function finish(task, text)
-    if not AA.opt("cookReturnItems") then
+    if not willReturnItems(task.player) then
         AA.stop(task.player, text, false)
         return
     end
@@ -648,6 +710,15 @@ local function think(task)
             AA.stop(player, task.doneText, false)
             return
         end
+
+        -- Consecutive failures, not attempts. A run that is still
+        -- sending ingredients home gets its budget back, so a big pile of
+        -- leftovers is not declared a failure on the sixth pass while it
+        -- is plainly working.
+        if task.lastReturnLeft == nil or left < task.lastReturnLeft then
+            task.returnTries = 0
+        end
+        task.lastReturnLeft = left
 
         task.returnTries = (task.returnTries or 0) + 1
         if task.returnTries > RETURN_ATTEMPTS then
@@ -693,7 +764,7 @@ end
 --- ESC. The returning phase above handles the tidy ending; this is the
 --- best effort for an abort, where there is no loop left to check up on.
 local function onStop(task)
-    if not AA.opt("cookReturnItems") then return end
+    if not willReturnItems(task.player) then return end
     queueReturns(task)
 end
 
@@ -706,7 +777,14 @@ function Cook.start(player, base, recipeId, plan)
 
     local containerList = Cook.getContainers(player)
     local recipe = Cook.findRecipe(player, base, recipeId, containerList)
-    if not recipe then return end
+    if not recipe then
+        -- The setup window closes before this runs, so the recipe is
+        -- resolved again against whatever is still within reach. Losing it
+        -- here used to end the whole thing in silence, looking like Start
+        -- did nothing. Same message CookUI.open gives for the same case.
+        HaloTextHelper.addBadText(player, getText("UI_AA_cook_noingredients"))
+        return
+    end
 
     plan = plan or {}
 
