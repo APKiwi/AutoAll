@@ -348,11 +348,13 @@ function MM.stop(player, reason, bad)
     if not state then return end
     MM.states[player:getPlayerNum()] = nil
     state.active = false
-    state.borrowed = nil
     MM.log("stop after " .. tostring(state.sets) .. " sets: " .. tostring(reason))
     MM.releaseSpeed(state)
     MM.stopFitnessAction(player)
     MM.stopRestAction(player)
+    -- After the forceStops above, so the transfers are not the thing being
+    -- cancelled. A stop used to keep whatever was borrowed.
+    MM.returnAllBorrowed(state)
     MM.showSummary(state)
     if reason then
         MM.say(state, reason, bad ~= false)
@@ -589,9 +591,13 @@ end
 
 --- Brings a borrowed item over (walking there if needed) and remembers where
 --- it came from, so the leftovers can go back.
+---
+--- A list, not a single slot. Borrowing pills and then food used to overwrite
+--- the pills entry, and the pills stayed in the bag for good.
 function MM.borrow(state, item, container, worldObject)
     if not container then return end
-    state.borrowed = {
+    state.borrowed = state.borrowed or {}
+    state.borrowed[#state.borrowed + 1] = {
         item = item,
         container = container,
         fromFloor = worldObject ~= nil or container:getType() == "floor",
@@ -600,36 +606,54 @@ function MM.borrow(state, item, container, worldObject)
     MM.log("borrowing " .. tostring(item:getType()) .. " from " .. tostring(container:getType()))
 end
 
---- Puts what is left of a borrowed item back where it came from.
---- Returns true when an action was queued.
-function MM.returnBorrowed(state)
-    local borrowed = state.borrowed
+--- Queues one borrowed item back where it came from.
+--- Returns true when a transfer was actually queued.
+function MM.queueReturn(state, borrowed)
     if not borrowed then return false end
+    if not MM.opt("putItemBack") then return false end
 
     local player = state.player
     local item = borrowed.item
     -- Fully consumed items simply stopped existing: nothing to give back.
-    if not item or not player:getInventory():contains(item) then
-        state.borrowed = nil
-        return false
-    end
-    if not MM.opt("putItemBack") then
-        state.borrowed = nil
-        return false
-    end
-    if currentAction(player) then return false end
+    if not item or not player:getInventory():contains(item) then return false end
 
     local destination = borrowed.container
     if borrowed.fromFloor then
         destination = ISInventoryPage.GetFloorContainer(player:getPlayerNum())
     end
-    state.borrowed = nil
     if not destination or destination == player:getInventory() then return false end
 
     ISTimedActionQueue.add(ISInventoryTransferUtil.newInventoryTransferAction(
             player, item, player:getInventory(), destination))
     MM.log("returning " .. tostring(item:getType()))
     return true
+end
+
+--- Puts what is left of the oldest borrowed item back where it came from.
+--- Returns true when an action was queued, so the rest phase waits for it.
+function MM.returnBorrowed(state)
+    local list = state.borrowed
+    if not list or #list == 0 then return false end
+    if currentAction(state.player) then return false end
+
+    -- Entries that have nothing left to give back are dropped rather than
+    -- queued, so one eaten sandwich does not stall the list behind it.
+    while #list > 0 do
+        if MM.queueReturn(state, table.remove(list, 1)) then return true end
+    end
+    return false
+end
+
+--- Every borrowed item goes back at the end of a session, not just whichever
+--- one happened to be current. Called from the stop path, where there is no
+--- next think() to work through the list one at a time.
+function MM.returnAllBorrowed(state)
+    local list = state.borrowed
+    if not list then return end
+    state.borrowed = nil
+    for _, borrowed in ipairs(list) do
+        MM.queueReturn(state, borrowed)
+    end
 end
 
 ---------------------------------------------------------------------
