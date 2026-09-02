@@ -315,6 +315,7 @@
     "UI_AA_vhs_started": "Watching %1 tapes.",
     "UI_AA_vhs_watching": "Watched %1.",
     "UI_AA_vhs_done": "Finished: %1 tapes watched.",
+    "UI_AA_vhs_done_partial": "Finished: %1 tapes watched, %2 stopped part way through.",
     "UI_AA_opt_enableMedicine": "Auto Medicine",
     "UI_AA_opt_titleMed": "Auto Medicine",
     "UI_AA_opt_medDisinfect": "Disinfect wounds before bandaging",

@@ -49,6 +49,10 @@ local SEARCH_RADIUS = 6
 local STEP_TIMEOUT = 20000
 local STEP_RETRIES = 3
 
+-- How many times a tape that stopped part way through is put back in
+-- before it is set aside and reported.
+local EARLY_RETRIES = 1
+
 -- Real milliseconds a single tape may take. This is a backstop for a
 -- machine that stops answering, not a mechanism - a tape ends on its own
 -- when DeviceData.updateMediaPlaying runs out of lines and calls
@@ -524,6 +528,34 @@ local function ready(task, data)
     return true
 end
 
+--- Has the whole programme in the machine reached the character?
+---
+--- There is no line counter on DeviceData that Lua can read: mediaLineIndex
+--- is protected and has no getter. There does not need to be one.
+--- ISRadioInteractions.checkPlayer writes the guid of every line that plays
+--- to a player in range into their known list, so a line still unknown is a
+--- line that never played.
+---
+--- This is what separates "the tape ran out of lines and stopped itself"
+--- from "somebody switched the television off twenty percent in". Both
+--- answer the same to isPlayingMedia.
+local function mediaComplete(player, data)
+    local ok, media = pcall(function() return data:getMediaData() end)
+    if not ok or not media then return true end
+
+    local count = media:getLineCount() or 0
+    for i = 0, count - 1 do
+        local line = media:getLine(i)
+        if line then
+            local guid = line:getTextGuid()
+            if guid and guid ~= "" and not player:isKnownMediaLine(guid) then
+                return false
+            end
+        end
+    end
+    return true
+end
+
 --- Ends the job, having watched everything there was to watch.
 ---
 --- The machine is put back the way it was found from onStop, not here.
@@ -532,6 +564,10 @@ end
 --- the same ordering Auto Cook's ingredient returns rely on.
 local function finish(task)
     task.cleanFinish = true
+    if task.incomplete > 0 then
+        AA.stop(task.player, getText("UI_AA_vhs_done_partial", task.watched, task.incomplete), false)
+        return
+    end
     AA.stop(task.player, getText("UI_AA_vhs_done", task.watched), false)
 end
 
@@ -569,8 +605,27 @@ local function tapeFinished(task, data)
     local entry = task.current
 
     if entry then
-        task.done[entry.index] = true
-        task.watched = task.watched + 1
+        -- Credited only when the programme actually ran out of lines. The
+        -- watch phase used to end on `not isPlayingMedia()` alone, which is
+        -- equally true after the television was switched off part way
+        -- through: the tape was ejected, marked done, counted and put back
+        -- on the shelf half heard, and never tried again.
+        local complete = task.currentComplete ~= false
+
+        if complete then
+            task.done[entry.index] = true
+            task.watched = task.watched + 1
+        else
+            -- Put back in once. A tape that keeps stopping early is set
+            -- aside with a count rather than retried for ever - the machine
+            -- is being switched off, and that is not going to fix itself.
+            local stops = (task.earlyStops[entry.index] or 0) + 1
+            task.earlyStops[entry.index] = stops
+            if stops > EARLY_RETRIES then
+                task.failed[entry.index] = true
+                task.incomplete = task.incomplete + 1
+            end
+        end
 
         if AA.opt("vhsReturnItems") and task.home then
             local tape = ejectedTape(player, task.tapesBefore or {})
@@ -584,11 +639,17 @@ local function tapeFinished(task, data)
             end
         end
 
-        AA.say(task, getText("UI_AA_vhs_watching", task.watched), false)
+        -- Nothing said for a tape that stopped early: it is going straight
+        -- back in, and the finish message names how many were left unwatched
+        -- if it keeps happening.
+        if complete then
+            AA.say(task, getText("UI_AA_vhs_watching", task.watched), false)
+        end
     end
 
     task.current = nil
     task.home = nil
+    task.currentComplete = nil
 
     local maxTapes = AA.opt("vhsMaxTapes") or 0
     if maxTapes > 0 and task.watched >= maxTapes then
@@ -622,6 +683,12 @@ local function think(task)
     end
 
     if ready(task, data) then
+        -- Asked while the tape is still in the slot, because the media data
+        -- is read from the machine and the eject that follows takes it away.
+        if task.phase == "watch" and task.current then
+            task.currentComplete = mediaComplete(player, data)
+        end
+
         if task.phase == "eject" then
             tapeFinished(task, data)
             return
@@ -706,6 +773,8 @@ function VHS.start(player, device, firstItem)
         param     = ISDeviceBatteryAction:getDeviceDataParameter(player, device.object, "IsoObject"),
         done      = {},
         failed    = {},
+        earlyStops = {},
+        incomplete = 0,
         watched   = 0,
         tries     = 0,
         first     = firstItem and firstItem:getID() or nil,
