@@ -251,6 +251,36 @@ function AA.OptionsWindow:build()
     pcall(function() self.body:autoGenerateJoypadButtonsLists() end)
 end
 
+--- Reads the live option values back into the widgets this window built.
+---
+--- The window is built once and then hidden and shown again, so without
+--- this a reopened window draws whatever was true when it was first built.
+--- The same settings are reachable from the pause menu panel and from the
+--- character tab, so that is not a rare case.
+---
+--- self.rows is the list every add*Row call appends to. It was populated
+--- from the start and never read by anything until now.
+function AA.OptionsWindow:refresh()
+    for _, row in ipairs(self.rows or {}) do
+        local entry, widget = row.entry, row.widget
+        if entry and widget then
+            local value = entry:getValue()
+
+            if row.kind == "tickbox" then
+                widget:setSelected(1, value == true)
+
+            elseif row.kind == "slider" then
+                -- Same two arguments addSliderRow builds it with.
+                widget:setCurrentValue(value, true)
+                if row.label then row.label:setName(tostring(value)) end
+
+            elseif row.kind == "combobox" then
+                widget.selected = value or 1
+            end
+        end
+    end
+end
+
 --- A caption for one row: right aligned so it ends at the split point and
 --- grows away from the widget instead of into it.
 ---
@@ -428,11 +458,22 @@ function AA.openAdvancedOptions(playerNum)
             AA.optionsWindow:setVisible(false)
             AA.optionsWindow:removeFromUIManager()
             AA.optionsWindow = nil
-        else
-            AA.optionsWindow:setVisible(true)
-            AA.optionsWindow:addToUIManager()
-            return AA.optionsWindow
+            -- Returning is the whole of the close. Without it execution fell
+            -- through into the build below, which made a fresh window on the
+            -- spot: the button appeared to do nothing except throw away the
+            -- player's position, size and scroll, and there was no way to
+            -- close the window from it at all.
+            return nil
         end
+
+        -- Shown again rather than rebuilt, so the widgets still hold the
+        -- values they were built with. Anything changed from the pause menu
+        -- panel meanwhile was invisible here until the window was closed and
+        -- made again.
+        AA.optionsWindow:setVisible(true)
+        AA.optionsWindow:addToUIManager()
+        pcall(function() AA.optionsWindow:refresh() end)
+        return AA.optionsWindow
     end
 
     local ok, err = pcall(function()

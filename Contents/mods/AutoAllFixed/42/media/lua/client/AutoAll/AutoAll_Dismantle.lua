@@ -565,6 +565,18 @@ local function queueGathering(task)
             ISInventoryPaneContextMenu.transferIfNeeded(player, item)
             moved = moved + 1
         end
+        -- Counted as part of the starting inventory, whichever round it
+        -- was fetched in.
+        --
+        -- Round one's prefetch lands before the snapshot is taken, so it
+        -- is already in task.before and returnResults leaves it where it
+        -- is. Anything fetched in a later round arrives after the snapshot
+        -- and looked like scrap the job had produced, so an unworked
+        -- gadget was posted off to the destination while its identical
+        -- twin from round one stayed in the bag. Adding it to the snapshot
+        -- is the smaller of the two ways to make those agree, and it keeps
+        -- returnResults a sweep of dismantling output only.
+        if task.before then task.before[item] = true end
     end
 
     return moved
@@ -630,7 +642,12 @@ local MAX_EMPTY_CRAFTS = 3
 
 -- Ticks a batch may wait for a transfer to land before it is treated as a
 -- stale plan rather than a slow one.
-local MAX_UNSETTLED = 5
+--
+-- think() runs one THINK_INTERVAL apart, 250ms, so five ticks waited 1.25s
+-- for the very ack the note in planRound records as taking two or three
+-- seconds. That gave up in the middle of a transfer that was going to land.
+-- Fourteen ticks covers 3.5s.
+local MAX_UNSETTLED = 14
 
 -- How many items beyond this round's batch to pull in while we are already
 -- waiting on a transfer. Costs nothing extra: they ride the same round trip.
@@ -713,6 +730,13 @@ local function returnResults(task)
     local player = task.player
     local inventory = player:getInventory()
     if not dest or dest == inventory then return end
+
+    -- No snapshot means no craft was ever queued, so nothing in the
+    -- inventory is scrap this job made. The looting phase reaches here that
+    -- way: it strips a body, cannot plan a round on what it took, and goes
+    -- straight to returning with task.before still nil. Indexing it then
+    -- threw and ended the job with "something went wrong".
+    if not task.before then return end
 
     local items = inventory:getItems()
     for i = 0, items:size() - 1 do

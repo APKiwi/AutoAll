@@ -63,7 +63,7 @@ AA.defaults = {
     cookSkipFavorite   = true,  -- never cook items flagged as favourite
     cookReturnItems    = true,  -- put borrowed items back where they came from
     cookPriority       = 1,     -- 1 calories / 2 hunger / 3 balanced
-    cookBadFromLevel   = 7,     -- Cooking level that unlocks bad ingredients (0 = never)
+    cookBadFromLevel   = 0,     -- Cooking level that unlocks bad ingredients (0 = never)
     -- Off by default, because it changes which ingredients go in the pot
     -- and nobody should have that change under them on an update.
     -- Requested by Tourette: "maybe also an option to use ingredients
