@@ -9,7 +9,7 @@ Core
 
 Cook
 - Skip rotten always beats the skill slider.
-- Sweeps only the squares vanilla would let you loot. One tile, not through walls or locked doors. It was queueing food you could not reach.
+- Sweeps only what you could walk to and open. Two tiles, never through a wall or a locked crate. It was pulling food through walls.
 - Seasonings no longer count as a pleasant option. One of each unnamed spice.
 - Disorganized cooks skip the return phase instead of failing it. Honest message when the recipe cannot be resolved.
 
