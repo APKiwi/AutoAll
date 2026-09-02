@@ -1163,7 +1163,12 @@ end
 --- previous base item only when that was already Food. An empty pot is
 --- not. Vanilla allows the same thing by hand: fill a pot from a tainted
 --- source and Prepare Soup appears on it.
-function Cook.startWater(player, base, recipeId)
+---
+--- @param plan table|nil  the setup window's plan, handed to the same
+---        newTask Cook.start uses, so once the water is in the cooking
+---        phase applies it exactly as it always has. The quick context
+---        menu entry passes nil and keeps the mod options.
+function Cook.startWater(player, base, recipeId, plan)
     if not player or not base then return end
 
     local recipe = Cook.findBaseRecipe(player, base, recipeId, nil)
@@ -1172,7 +1177,7 @@ function Cook.startWater(player, base, recipeId)
         return
     end
 
-    local task = newTask(player, base, recipeId, nil)
+    local task = newTask(player, base, recipeId, plan)
     task.phase     = "filling"
     task.startText = getText("UI_AA_cook_started_water", Cook.recipeName(recipe))
 
