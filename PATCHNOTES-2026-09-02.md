@@ -49,3 +49,11 @@ Exercise (MuscleManager)
 - Every borrowed item returned on stop. One painkiller per session, never on top of an active one.
 - Eats from your bag first, spoiling food first. Rests only on a seat in the same room. An open injury stops the session.
 - AUTO box unticks with a reason when the job stops.
+
+---
+
+Follow-up
+
+- The Auto Cook setup window now matches the quick menu. An empty pot with water in reach gets Soup and Stew listed as "(gets water first)", the ingredient rows show what will go in once the pot is filled, and Start fills the pot then honours your per-ingredient numbers.
+- Both entry points ask the same question in the same place, so they cannot disagree.
+- Workshop description rewritten for what this fork is now.
