@@ -129,54 +129,120 @@ local function canChangeSpeed()
     return not isClient() and not isServer()
 end
 
-local function currentSpeedIndex()
-    local controls = UIManager.getSpeedControls()
-    if controls then return controls:getCurrentGameSpeed() end
-    return getGameSpeed()
+local function currentSpeedSlot()
+    local ok, slot = pcall(function()
+        local controls = UIManager.getSpeedControls()
+        if controls then return controls:getCurrentGameSpeed() end
+        return getGameSpeed()
+    end)
+    if ok and type(slot) == "number" then return slot end
+    return nil
 end
 
 local function setRealSpeed(index)
-    local controls = UIManager.getSpeedControls()
-    if controls then
-        controls:SetCurrentGameSpeed(SPEEDS[index] or 1)
-    else
-        setGameSpeed(SPEEDS[index] or 1)
-    end
-    getGameTime():setMultiplier(MULTS[index] or 1)
+    pcall(function()
+        local controls = UIManager.getSpeedControls()
+        if controls then
+            controls:SetCurrentGameSpeed(SPEEDS[index] or 1)
+        else
+            setGameSpeed(SPEEDS[index] or 1)
+        end
+        getGameTime():setMultiplier(MULTS[index] or 1)
+    end)
 end
 
+-- ISTimedActionQueue.lua resets the game speed to 1 whenever the action
+-- queue goes idle and the vanilla "reset game speed when a timed action
+-- ends" option is on, which is between every single set. Re-asserting the
+-- speed on every tick used to paper over that, and it is exactly what made
+-- pausing impossible. With a latch in place that reset would instead read as
+-- the player choosing 1x and stand the session down, so the flag is cleared
+-- while a session owns the speed. Same fix, same reason, as holdGameSpeed in
+-- AutoAll_Core.
+local function releaseVanillaReset()
+    if ISTimedActionQueue then
+        ISTimedActionQueue.shouldResetGameSpeed = false
+    end
+end
+
+--- Takes the game speed up once, then leaves the player alone.
+---
+--- This used to write the configured speed back on every tick whenever the
+--- current slot differed, so a pause or a manual 1x was undone before it
+--- reached the screen. It is now the same latch AutoAll_Core uses
+--- (AA.applySpeed): the slot we set is remembered, and the first slot we did
+--- not set stands the session down for good. Pause is slot 0 and is a player
+--- choice like any other.
 function MM.applySpeed(state)
     if not canChangeSpeed() then return end
+    if state.speedGaveUp then return end
+
     local index = MM.opt("fastForward") or 1
-    if index > 1 and currentSpeedIndex() ~= SPEEDS[index] then
-        setRealSpeed(index)
-        state.speedHeld = true
+    if index <= 1 then return end
+    local wanted = SPEEDS[index]
+    if not wanted then return end
+
+    local slot = currentSpeedSlot()
+    if slot == nil then return end
+
+    if state.speedHeld then
+        -- Still the slot we set? If not, the player moved it. Hands off for
+        -- the rest of the session.
+        if slot ~= wanted then
+            state.speedHeld   = false
+            state.speedGaveUp = true
+            state.speedFollow = true
+        end
+        return
     end
+
+    -- Only ever taken from a standing start. Anything else is the player's
+    -- own choice: a faster speed they picked, or a pause we must not undo.
+    if slot ~= 1 then
+        state.speedGaveUp = true
+        -- Their speed, not ours, so it is never written to. Vanilla's reset
+        -- would still knock it back after the next set, which reads as the
+        -- mod refusing to let them speed the game up, so it stays defended
+        -- for the length of the session.
+        state.speedFollow = true
+        return
+    end
+
+    setRealSpeed(index)
+    state.speedHeld = true
+    releaseVanillaReset()
 end
 
 function MM.releaseSpeed(state)
     if not canChangeSpeed() then return end
-    if state.speedHeld then
-        state.speedHeld = false
-        setRealSpeed(1)
-    end
+    if not state.speedHeld then return end
+    state.speedHeld = false
+    setRealSpeed(1)
 end
 
 -- The base game resets speed to 1 on its own: ISTimedActionQueue.onTick does
 -- it whenever the character briefly isn't "doing an action" (standing up,
 -- switching sets...) and the "resume normal speed" option is on, and
 -- ISFitnessAction.stop()/perform() do it on every single set. Both run every
--- tick, faster than our own 350ms think() loop, so speed has to be
--- re-asserted at the same frequency. Mods load after the base game, so this
--- handler always runs after ISTimedActionQueue's own OnTick in the same
--- tick, and the reset never actually reaches the screen.
+-- tick, which is why the vanilla reset is disarmed here rather than fought
+-- with a re-assert: a re-assert cannot tell a reset apart from the player,
+-- and that is what made the speed impossible to change by hand.
 local function speedTick()
     -- The Auto All switch, same as onPlayerUpdate. A loop that is not
     -- allowed to run must not be holding the game speed up either.
     if not MM.enabled() then return end
+    if not canChangeSpeed() then return end
     for _, state in pairs(MM.states) do
-        if state.active and (state.phase == "exercising" or MM.opt("holdSpeed")) then
-            MM.applySpeed(state)
+        if state.active then
+            -- speedHeld   = a speed this session set and still owns
+            -- speedFollow = a speed the player set, which is not written to
+            --               but is defended for the length of the session
+            if state.speedHeld or state.speedFollow then
+                releaseVanillaReset()
+            end
+            if state.phase == "exercising" or MM.opt("holdSpeed") then
+                MM.applySpeed(state)
+            end
         end
     end
 end
