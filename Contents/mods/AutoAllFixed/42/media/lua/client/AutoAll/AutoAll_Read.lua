@@ -191,7 +191,10 @@ local function queueRead(task, item)
     })
     task.inFlight[keyOf(item)] = true
 
-    if AA.opt("readReturnItems") then
+    -- getContainer() is nil for an item in transit, and on a client that is
+    -- an ordinary state while a transfer settles. Sending it "home" to nil
+    -- is the same guard AutoAll_Tailoring's queueReturns applies.
+    if AA.opt("readReturnItems") and home and home ~= player:getInventory() then
         ISCraftingUI.ReturnItemToContainer(player, item, home)
     end
 
