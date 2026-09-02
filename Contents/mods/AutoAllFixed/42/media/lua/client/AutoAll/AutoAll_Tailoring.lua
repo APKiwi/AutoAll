@@ -441,15 +441,19 @@ end
 
 Tailor.holedParts = holedParts
 
---- The fabric to sew this particular hole with.
+--- The fabric to sew this particular hole with, or nil.
 ---
---- Prefers one that closes the hole completely - leather wants leather -
---- and only then falls back to the order the fabric option asks for.
---- Choosing the better patch is not a rebalance: the game offers exactly
---- these fabrics for exactly this part, and tells us which one restores
---- it, through canFullyRestore. This just stops picking the worse one.
+--- Only one that closes the hole completely - leather wants leather - in
+--- the order the fabric option asks for. Choosing the better patch is not
+--- a rebalance: the game offers exactly these fabrics for exactly this
+--- part, and tells us which one restores it, through canFullyRestore.
+---
+--- There is deliberately no fallback to whatever is in the pack. Sewing a
+--- ripped sheet onto a leather jacket blocks the part: re-patching it with
+--- leather later needs an unpick, and ISRemovePatch only returns the
+--- fabric on a chance roll. A hole with no matching material is left open
+--- and counted instead.
 function Tailor.findFabricFor(player, clothing, part)
-    local inv = player:getInventory()
     local choice = AA.opt("tailorFabric") or 1
 
     local order = {}
@@ -461,18 +465,16 @@ function Tailor.findFabricFor(player, clothing, part)
         end
     end
 
-    local first = nil
     for _, fabricType in ipairs(order) do
         local fabric = AA.findItem(player, fabricType)
         if fabric then
-            if not first then first = fabric end
             local ok, full = pcall(function()
                 return clothing:canFullyRestore(player, part, fabric)
             end)
             if ok and full then return fabric end
         end
     end
-    return first
+    return nil
 end
 
 --- Everything within reach with at least one open hole. Worn and carried
@@ -569,18 +571,33 @@ local function queueRepairs(task)
     local thread = Tailor.findThread(player)
     if not needle or not thread then return 0 end
 
+    -- Every round starts with a drained queue, so nothing handed out on the
+    -- previous one is still waiting and the reservations can all go.
+    task.reserved = {}
+
+    local unmatched = 0
+
     for _, clothing in ipairs(task.garments) do
         if AA.holds(player, clothing) then
             for _, part in ipairs(holedParts(clothing)) do
-                local fabric = Tailor.findFabricFor(player, clothing, part)
-                if fabric then
-                    ISInventoryPaneContextMenu.repairClothing(player, clothing, part, fabric, thread, needle)
-                    queued = queued + 1
+                local chosen = Tailor.findFabricFor(player, clothing, part)
+                if not chosen then
+                    unmatched = unmatched + 1
+                else
+                    -- The type is what findFabricFor decides; which piece of
+                    -- it goes on this hole is takeFabric's job, so no two
+                    -- repairs in the round share an instance and get dropped.
+                    local piece = takeFabric(task, chosen:getType(), 1)[1]
+                    if piece then
+                        ISInventoryPaneContextMenu.repairClothing(player, clothing, part, piece, thread, needle)
+                        queued = queued + 1
+                    end
                 end
             end
         end
     end
 
+    task.unmatched = unmatched
     return queued
 end
 
@@ -598,6 +615,15 @@ local function queueReturns(task)
     end
 end
 
+--- Why nothing could be queued: the material for these holes is simply not
+--- one the player is carrying, or there is no thread and fabric at all.
+local function nothingToSewWith(task)
+    if (task.unmatched or 0) > 0 then
+        return getText("UI_AA_repair_nomatch", task.unmatched)
+    end
+    return getText("UI_AA_repair_nomaterials")
+end
+
 local function repairThink(task)
     local player = task.player
 
@@ -609,7 +635,7 @@ local function repairThink(task)
         -- Mechanics: an in-progress message breaks the single player fast
         -- forward, which is the whole point of batching the work.
         if queueRepairs(task) == 0 then
-            AA.stop(player, getText("UI_AA_repair_nomaterials"), true)
+            AA.stop(player, nothingToSewWith(task), true)
         end
         return
     end
@@ -629,6 +655,13 @@ local function repairThink(task)
 
     local left   = remainingHoles(task.garments)
     local mended = math.max(0, task.holes - left)
+
+    -- Named on its own line: those holes did not fail, they need leather
+    -- (or denim, or sheets) the player is not carrying. Patching them with
+    -- whatever was to hand is what this stopped doing.
+    if (task.unmatched or 0) > 0 then
+        AA.say(task, getText("UI_AA_repair_nomatch", task.unmatched), true)
+    end
 
     if left > 0 then
         AA.stop(player, getText("UI_AA_repair_partial", mended, left), true)
@@ -679,7 +712,7 @@ function Tailor.startRepair(player, single)
     if queueFetching(task) == 0 then
         task.phase = "sewing"
         if queueRepairs(task) == 0 then
-            AA.stop(player, getText("UI_AA_repair_nomaterials"), true)
+            AA.stop(player, nothingToSewWith(task), true)
         end
     end
 end

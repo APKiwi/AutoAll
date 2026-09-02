@@ -207,6 +207,7 @@
     "UI_AA_repair_partial": "%1 repaired, %2 still open.",
     "UI_AA_repair_noholes": "Nothing here has a hole in it.",
     "UI_AA_repair_nomaterials": "Not enough thread or fabric to sew with.",
+    "UI_AA_repair_nomatch": "%1 hole(s) need a material you do not have.",
     "UI_AA_mech_stop": "Stop Auto Mechanics",
     "UI_AA_mech_done": "%1 parts done.",
     "UI_AA_mech_nothing": "Nothing on this car can be worked on right now.",
