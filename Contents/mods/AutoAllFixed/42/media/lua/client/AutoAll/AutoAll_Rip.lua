@@ -811,7 +811,30 @@ local function planRound(task)
         room = math.min(room or clientCap, clientCap)
     end
 
+    -- Bound the batch by what the character can still carry.
+    --
+    -- Nothing did, before this. `room` is nil whenever ripMax is 0, which is
+    -- the default, and AA.batchSize answers nil off a client - so in single
+    -- player with the cap off the batch was the whole group. A forty garment
+    -- wardrobe was transferred into the inventory before the first craft ran,
+    -- the character was instantly overloaded, and an overloaded character
+    -- loses health for as long as it stays that way: stopDamage then killed
+    -- the job and left the player carrying the wardrobe. Same bound
+    -- queueLooting already applies to stripping bodies.
+    --
+    -- Only garments that are not already carried count against it. The ones
+    -- in the inventory are on the scale already, and refusing them would
+    -- stall a job that has everything it needs in hand.
+    local inventory = player:getInventory()
+    local gotCarry, carry = pcall(function()
+        return player:getMaxWeight() - player:getInventoryWeight()
+    end)
+    if not gotCarry or type(carry) ~= "number" then carry = 0 end
+
+    local full = false
     for _, group in ipairs(groupByRecipe(player, items, containers)) do
+        if full then break end
+
         local logic = buildLogic(player, group.items[1], group.recipe)
         if logic:canPerformCurrentRecipe() then
             local possible = logic:getPossibleCraftCount(true) or 0
@@ -819,11 +842,34 @@ local function planRound(task)
             if room then doable = math.min(doable, room - #batch) end
 
             if doable > 0 then
+                local took = 0
                 for i = 1, doable do
-                    table.insert(batch, group.items[i])
+                    local item = group.items[i]
+
+                    local weight = 0
+                    if item:getContainer() ~= inventory then
+                        local gotWeight, value = pcall(function() return item:getWeight() end)
+                        if gotWeight and type(value) == "number" then weight = value end
+                    end
+
+                    -- At least one garment always goes, however loaded the
+                    -- character already is: it is about to become something
+                    -- lighter, so refusing it outright is how a job with work
+                    -- left to do would stall instead.
+                    if #batch > 0 and (carry - weight) < 0 then
+                        full = true
+                        break
+                    end
+
+                    carry = carry - weight
+                    table.insert(batch, item)
+                    took = took + 1
                 end
-                for _, item in ipairs(borrowedSupplies(player, logic)) do
-                    table.insert(supplies, item)
+
+                if took > 0 then
+                    for _, item in ipairs(borrowedSupplies(player, logic)) do
+                        table.insert(supplies, item)
+                    end
                 end
             end
         end
@@ -846,15 +892,15 @@ local function planRound(task)
     local inBatch = {}
     for _, item in ipairs(batch) do inBatch[item] = true end
 
+    -- Carries on from the batch's own budget rather than reading the
+    -- headroom again. The batch is fetched in the very same gathering pass,
+    -- so re-reading here spent the same pounds twice and the two together
+    -- could still overload the character the batch alone would not have.
     local prefetch = {}
-    local gotCarry, carry = pcall(function()
-        return player:getMaxWeight() - player:getInventoryWeight()
-    end)
-    if not gotCarry or type(carry) ~= "number" then carry = 0 end
 
     for _, ahead in ipairs(items) do
         if #prefetch >= PREFETCH then break end
-        if not inBatch[ahead] and ahead:getContainer() ~= player:getInventory() then
+        if not inBatch[ahead] and ahead:getContainer() ~= inventory then
             local weight = 0
             local gotWeight, value = pcall(function() return ahead:getWeight() end)
             if gotWeight and type(value) == "number" then weight = value end
