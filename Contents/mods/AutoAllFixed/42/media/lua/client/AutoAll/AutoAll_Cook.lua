@@ -405,9 +405,6 @@ function Cook.pickNext(task, recipe, containerList)
                     spice = item
                 end
             elseif roomForFood and (task.usedTypes[item:getFullType()] or 0) < allowanceFor(task, item) then
-                if unhappyOf(item) <= 0 then
-                    hasKindOption = true
-                end
                 local score = scoreOf(task, item)
                 if isScriptSpice(item) then
                     -- Still a seasoning, however many calories it carries.
@@ -415,8 +412,18 @@ function Cook.pickNext(task, recipe, containerList)
                             and (spiceFoodScore == nil or score > spiceFoodScore) then
                         spiceFood, spiceFoodScore = item, score
                     end
-                elseif foodScore == nil or score > foodScore then
-                    food, foodScore = item, score
+                else
+                    -- Only a real ingredient counts as a pleasant option.
+                    -- A seasoning cannot be one: the re-scan below skips
+                    -- script spices, so a jar of sugar marking the flag
+                    -- threw away the potatoes and then found nothing to
+                    -- replace them with, and the dish came out as sugar.
+                    if unhappyOf(item) <= 0 then
+                        hasKindOption = true
+                    end
+                    if foodScore == nil or score > foodScore then
+                        food, foodScore = item, score
+                    end
                 end
             end
         end
