@@ -846,6 +846,48 @@ local function isEdible(item)
     return item:getHungerChange() < 0
 end
 
+-- Past this much of its shelf life, an item is "going off anyway" and is
+-- worth eating before something that will keep.
+local SPOILING_SOON = 0.5
+
+--- How far along the way to spoiling, 0..1. Unreadable ages answer 0, which
+--- ranks the item as fresh and so as the last thing to be picked.
+local function spoilFraction(item)
+    local ok, fraction = pcall(function()
+        local limit = item:getOffAgeMax()
+        if not limit or limit <= 0 then limit = item:getOffAge() end
+        if not limit or limit <= 0 then return 0 end
+        return item:getAge() / limit
+    end)
+    if ok and type(fraction) == "number" then return fraction end
+    return 0
+end
+
+--- The edible item on the character that is closest to going off, or nil.
+---
+--- Two rules, in this order: what is already in the bag beats what is in the
+--- fridge one tile away, and the oldest safe thing beats the freshest. The
+--- old code took the first edible item a container scan turned up, which is
+--- how a pot of cooked stew got eaten instead of the crisps that were about
+--- to spoil.
+local function bestFoodOnPerson(player)
+    local ok, best = pcall(function()
+        local list = player:getInventory():getAllEvalRecurse(isEdible)
+        if not list then return nil end
+        local pick, pickScore = nil, nil
+        for i = 0, list:size() - 1 do
+            local item = list:get(i)
+            local score = spoilFraction(item)
+            if pick == nil or score > pickScore then
+                pick, pickScore = item, score
+            end
+        end
+        return pick
+    end)
+    if ok then return best end
+    return nil
+end
+
 --- Hunger as 0..1 (1 = starving).
 function MM.getHunger(player)
     local stats = player:getStats()
@@ -864,7 +906,19 @@ function MM.tryEat(state)
     if now() - (state.lastEatAt or 0) < EAT_COOLDOWN then return false end
     if currentAction(player) then return false end
 
-    local food, container, worldObject = MM.findItem(player, isEdible)
+    local food, container, worldObject = bestFoodOnPerson(player), nil, nil
+    if not food then
+        -- Nothing on the character. MM.findItem returns the nearest match
+        -- rather than a ranked list, so the same "eat what is going off
+        -- first" preference is expressed as two passes over the nearby
+        -- containers instead of a sort.
+        food, container, worldObject = MM.findItem(player, function(item)
+            return isEdible(item) and spoilFraction(item) >= SPOILING_SOON
+        end)
+    end
+    if not food then
+        food, container, worldObject = MM.findItem(player, isEdible)
+    end
     if not food then
         MM.reason(state, getText("UI_MM_noFood"))
         return false
