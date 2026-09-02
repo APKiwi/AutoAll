@@ -389,17 +389,23 @@ function AA.applySpeed(task)
         return
     end
 
-    -- Only ever taken from a standing start. Anything else is the player's
-    -- choice: a faster speed they picked, or a pause (slot 0) that we must
-    -- never quietly undo.
+    -- Only ever taken from a standing start.
     if slot ~= 1 then
-        task.speedGaveUp = true
-        -- Their speed, not ours - so it is never written to. But vanilla's
-        -- reset would knock it back to normal after the job's first action
-        -- and keep doing it, which reads as the mod refusing to let them
-        -- speed the game up. Standing down means not writing the speed, not
-        -- letting something else undo what they chose while our job runs.
-        task.speedFollow = true
+        if slot > 1 then
+            -- A speed the player picked. Theirs, not ours - so it is never
+            -- written to. But vanilla's reset would knock it back to normal
+            -- after the job's first action and keep doing it, which reads as
+            -- the mod refusing to let them speed the game up. Standing down
+            -- means not writing the speed, not letting something else undo
+            -- what they chose while our job runs.
+            task.speedGaveUp = true
+            task.speedFollow = true
+        end
+        -- Slot 0 is a pause, and a pause is not a choice of speed. Latching
+        -- here is what killed fast forward for a whole job when the player
+        -- happened to be paused as it started: the latch never clears, so
+        -- unpausing got them nothing. Nothing is written while paused, and
+        -- the next think takes the speed up once they are back at slot 1.
         return
     end
 
