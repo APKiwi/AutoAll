@@ -31,6 +31,7 @@
 ]]
 
 require "AutoAll/AutoAll_Core"
+require "AutoAll/AutoAll_Water"
 
 AutoAll = AutoAll or {}
 local AA = AutoAll
@@ -54,52 +55,12 @@ local DIRTY_CLOTH = {
 -- water sources
 ---------------------------------------------------------------------
 
---- How much water an object can actually give us.
----
---- This is deliberately the same number ISWashClothing:isValid() tests
---- against, so anything reported as zero here genuinely cannot wash - no
---- point offering it. IsoObject.getFluidAmount() already resolves every
---- shape a water source comes in:
----   piped fixture, mains still on   -> 10000 (via isWaterInfinite)
----   fixture fed by another object   -> that source's own amount
----   tubs, barrels, wells, kettles   -> its FluidContainer amount
----   toilet cisterns                 -> getReserveWaterAmount()
----   rain puddles on a solid floor   -> puddle depth * 10
---- Rivers, lakes and the sea deliberately report 0 - the vanilla wash
---- actions refuse them, so we must not pretend otherwise.
-local function fluidAmountOf(object)
-    if not object or not instanceof(object, "IsoObject") then return 0 end
-    local ok, amount = pcall(function() return object:getFluidAmount() end)
-    if ok and type(amount) == "number" then return amount end
-    return 0
-end
-
---- True for anything that is plumbing at all - sink, toilet, bath, rain
---- collector, well - whether or not it currently holds a drop.
----
---- A dry fixture still gets a menu entry, greyed out with the reason.
---- Sinks run dry the moment the water is shut off, and an option that
---- silently disappears reads as a broken mod rather than an empty sink.
-function Clean.isWaterFixture(object)
-    if not object or not instanceof(object, "IsoObject") then return false end
-
-    local ok, found = pcall(function()
-        if object:hasComponent(ComponentType.FluidContainer) then return true end
-        if object:getFluidContainer() ~= nil then return true end
-
-        -- Piped fixtures advertise themselves through the sprite even when
-        -- the mains are off and they hold nothing at all.
-        local sprite = object:getSprite()
-        local props = sprite and sprite:getProperties()
-        if props and (props:has(IsoFlagType.waterPiped)
-                or props:has(IsoPropertyType.WATER_AMOUNT)) then
-            return true
-        end
-        return false
-    end)
-
-    return ok and found == true
-end
+--- Both of these live in AutoAll_Water now: Auto Cook fills a pot from
+--- the same sinks and barrels this washes in, and one answer to "is that
+--- a water source" is the only way the two menus can agree. The names
+--- here stay, so nothing else in this file had to change.
+local fluidAmountOf = AA.Water.amountOf
+Clean.isWaterFixture = AA.Water.isFixture
 
 --- Every object on a square and the ring of squares around it.
 local function objectsNear(square, out)
