@@ -86,6 +86,10 @@ AA.defaults = {
     sterilReturnItems  = true,  -- put the leftover alcohol back when finished
 
     -- dismantling electronics
+    -- On by default, like Auto Rip's. A favourite is the player saying
+    -- "not this one", and before this existed a single favourited watch
+    -- aborted the whole batch rather than being skipped.
+    dismantleSkipFavorite  = true,  -- never take apart items flagged as favourite
     dismantleReturnItems   = true,  -- put the screwdriver back when finished
     dismantleResultsToSource = true, -- send the scrap back to the container it came from
     dismantleMax           = 0,     -- 0 = as many as the batch allows
@@ -393,6 +397,7 @@ local function createModOptions()
     options:addTickBox("sterilReturnItems", "UI_AA_opt_sterilReturnItems", d.sterilReturnItems, "UI_AA_opt_sterilReturnItems_tt")
 
     options:addTitle("UI_AA_opt_titleDismantle")
+    options:addTickBox("dismantleSkipFavorite", "UI_AA_opt_dismantleSkipFavorite", d.dismantleSkipFavorite, "UI_AA_opt_dismantleSkipFavorite_tt")
     options:addTickBox("dismantleReturnItems", "UI_AA_opt_dismantleReturnItems", d.dismantleReturnItems, "UI_AA_opt_dismantleReturnItems_tt")
     options:addTickBox("dismantleResultsToSource", "UI_AA_opt_dismantleResultsToSource", d.dismantleResultsToSource, "UI_AA_opt_dismantleResultsToSource_tt")
     options:addSlider("dismantleMax", "UI_AA_opt_dismantleMax", 0, 100, 1, d.dismantleMax, "UI_AA_opt_dismantleMax_tt")

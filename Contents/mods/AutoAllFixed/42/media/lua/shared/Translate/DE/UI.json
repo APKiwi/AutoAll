@@ -472,5 +472,8 @@
     "UI_AA_cook_ui_load": "Laden",
     "UI_AA_cook_ui_forget": "Loeschen",
     "UI_AA_cook_ui_save": "Speichern",
-    "UI_AA_rip_blocked": "Es gibt hier etwas zu zerreissen, aber gerade nichts davon geht. Versuche es gleich noch einmal."
+    "UI_AA_rip_blocked": "Es gibt hier etwas zu zerreissen, aber gerade nichts davon geht. Versuche es gleich noch einmal.",
+    "UI_AA_opt_dismantleSkipFavorite": "Favoriten nie zerlegen",
+    "UI_AA_opt_dismantleSkipFavorite_tt": "Als Favorit markierte Gegenstaende bleiben unangetastet. Ohne dies stoppt eine einzige favorisierte Uhr den ganzen Stapel, statt uebersprungen zu werden.",
+    "UI_AA_dismantle_blocked": "Hier kann gerade nichts zerlegt werden. Getragene, kaputte oder bereits benutzte Gegenstaende zaehlen nicht."
 }

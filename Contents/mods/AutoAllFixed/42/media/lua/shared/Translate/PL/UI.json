@@ -472,5 +472,8 @@
     "UI_AA_cook_ui_load": "Wczytaj",
     "UI_AA_cook_ui_forget": "Zapomnij",
     "UI_AA_cook_ui_save": "Zapisz",
-    "UI_AA_rip_blocked": "Jest tu co drzec, ale nic nie da sie w tej chwili. Sprobuj za moment."
+    "UI_AA_rip_blocked": "Jest tu co drzec, ale nic nie da sie w tej chwili. Sprobuj za moment.",
+    "UI_AA_opt_dismantleSkipFavorite": "Nigdy nie rozbieraj ulubionych",
+    "UI_AA_opt_dismantleSkipFavorite_tt": "Przedmioty oznaczone jako ulubione zostaja nietkniete. Bez tego jeden ulubiony zegarek zatrzymuje cala partie, zamiast zostac pominiety.",
+    "UI_AA_dismantle_blocked": "Nie ma tu teraz nic do rozebrania. Zalozone, zepsute lub juz uzyte przedmioty sie nie licza."
 }

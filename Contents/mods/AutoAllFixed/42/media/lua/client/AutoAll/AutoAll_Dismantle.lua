@@ -396,6 +396,31 @@ function Dismantle.collect(player, fullType)
             return false
         end
 
+        -- A favourite stops the whole batch, not just itself, and that
+        -- is the bug two people reported independently.
+        --
+        -- > *Mattnetic:* "if one digital watch is favorited, it won't
+        -- > dismantle any other digital watches and stops with
+        -- > 'something went wrong'. Unfavoriting the watch fixes it."
+        -- > *Z3R0B4NG:* "one favorited digital watch and the process
+        -- > refuses to dismantle the stack."
+        --
+        -- Mattnetic diagnosed it correctly too: the favourite gets picked
+        -- as the recipe target for its type, vanilla refuses to consume a
+        -- protected item, and the whole round is abandoned rather than
+        -- the one item. Auto Rip has had this guard since it was written
+        -- (ripSkipFavorite); Auto Dismantle never did.
+        --
+        -- Counted as skipped rather than silently dropped, so the tooltip
+        -- says how many are being left alone instead of the count simply
+        -- coming up short.
+        --
+        -- From upstream Auto All, 2026-09-06.
+        if AA.opt("dismantleSkipFavorite") and item:isFavorite() then
+            skipped = skipped + 1
+            return false
+        end
+
         if inUse(player, item) then
             skipped = skipped + 1
             return false

@@ -472,5 +472,8 @@
     "UI_AA_cook_ui_load": "载入",
     "UI_AA_cook_ui_forget": "删除",
     "UI_AA_cook_ui_save": "保存",
-    "UI_AA_rip_blocked": "找到了可以撕开的东西，但现在都撕不了。请稍后再试。"
+    "UI_AA_rip_blocked": "找到了可以撕开的东西，但现在都撕不了。请稍后再试。",
+    "UI_AA_opt_dismantleSkipFavorite": "绝不拆解收藏物品",
+    "UI_AA_opt_dismantleSkipFavorite_tt": "标记为收藏的物品会被保留。关闭此项时，一块收藏的手表会让整批停下，而不是被跳过。",
+    "UI_AA_dismantle_blocked": "现在这里没有可拆解的东西。穿戴中、损坏或已使用的物品不计入。"
 }

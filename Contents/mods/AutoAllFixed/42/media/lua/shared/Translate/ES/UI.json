@@ -472,5 +472,8 @@
     "UI_AA_cook_ui_load": "Cargar",
     "UI_AA_cook_ui_forget": "Olvidar",
     "UI_AA_cook_ui_save": "Guardar",
-    "UI_AA_rip_blocked": "He encontrado cosas que rasgar, pero ninguna se puede ahora mismo. Intentalo en un momento."
+    "UI_AA_rip_blocked": "He encontrado cosas que rasgar, pero ninguna se puede ahora mismo. Intentalo en un momento.",
+    "UI_AA_opt_dismantleSkipFavorite": "Nunca desmontar favoritos",
+    "UI_AA_opt_dismantleSkipFavorite_tt": "Los objetos marcados como favoritos se dejan en paz. Con esto desactivado, un solo reloj favorito detiene todo el lote en vez de saltarse.",
+    "UI_AA_dismantle_blocked": "Nada de esto se puede desmontar ahora. Los objetos puestos, rotos o ya usados no cuentan."
 }
