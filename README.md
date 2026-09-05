@@ -11,7 +11,13 @@ original. The fork is retired and this repo is now the original's source.
 Layout is the Workshop item layout, so `Contents/mods/AutoAll/42/` is the mod.
 `workshop.txt` carries the item id, title, description and tags, and the
 in-game uploader overwrites the live listing with them, so treat that file as
-the published page rather than as notes. `preview.png` is the listing image.
+the published page rather than as notes. `preview.png` is the listing image,
+and it is uploaded too, so it has to be the real one rather than a placeholder.
+
+The uploader appends a `Workshop ID:` and `Mod ID:` footer to the description
+every time it runs. Three copies had accumulated on the live listing before
+this repo took the description over. Never paste that footer back into
+`workshop.txt` or it grows again on the next upload.
 
 `AUDIT-*.md` are code audits. `PATCHNOTES-*.md` are per-release notes.
 
