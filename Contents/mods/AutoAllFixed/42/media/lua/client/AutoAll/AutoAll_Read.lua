@@ -87,8 +87,47 @@ function Read.appraise(player, item)
     if Read.isRecipeMagazine(item) then
         if not AA.opt("readMagazines") then return nil end
         local learned = item:getLearnedRecipes()
-        local known = item:getKnownRecipes(player)
-        if known and known:size() >= learned:size() then return nil end -- all of it is known
+        -- Two questions, and the second one is the fix for a real loop.
+        --
+        -- > *Barbiehunter:* "The mod says I still need to read Medieval
+        -- > Blacksmithing and Iron Age Blacksmithing, even though I have
+        -- > read them several times via the mod."
+        --
+        -- Those are recipe magazines (Base.SmithingMag10 and friends,
+        -- LearnedRecipes = Smelting_Furnace;Blast_Furnace). Comparing
+        -- sizes assumed that reading one always ends with every recipe in
+        -- it known - and a recipe the character cannot learn never enters
+        -- getKnownRecipes(), so the count never catches up and the
+        -- magazine is offered again for ever.
+        --
+        -- The game keeps its own record of having read the thing, and it
+        -- is unconditional. ISReadABook:complete(), line 332:
+        --
+        --     if self.item:getLearnedRecipes() and not ...:isEmpty() then
+        --         self.character:getAlreadyReadBook():add(self.item:getFullType())
+        --
+        -- so asking that ends the loop whether or not every recipe stuck.
+        -- Matched on getFullType because that is what ISReadABook writes;
+        -- vanilla ISLiteratureUI:98 reads it back with getFullName, which
+        -- is a vanilla bug and not one to copy.
+        --
+        -- From upstream Auto All, 2026-09-06.
+        local seen = false
+        pcall(function()
+            local already = player:getAlreadyReadBook()
+            seen = already ~= nil and already:contains(item:getFullType()) == true
+        end)
+        if seen then return nil end
+
+        -- containsAll, not a size comparison - the same test the vanilla
+        -- inventory pane uses at ISInventoryPane.lua:2597.
+        local knownAll = false
+        pcall(function()
+            local known = player:getKnownRecipes()
+            knownAll = known ~= nil and known:containsAll(learned) == true
+        end)
+        if knownAll then return nil end
+
         return { item = item, order = ORDER_MAGAZINE, kind = "magazine" }
     end
 
