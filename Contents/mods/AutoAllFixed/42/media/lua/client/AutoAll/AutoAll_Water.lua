@@ -95,3 +95,23 @@ function Water.isTainted(object)
     if not ok then return true end
     return tainted == true
 end
+
+--- True when the game itself would pour this source into that container.
+---
+--- The three tests above answer "is there water here and how much". This
+--- answers the question vanilla's own Fill menu asks
+--- (ISWorldObjectContextMenu.onTakeWater gates on exactly this), which is
+--- a different one: it covers a source whose fluid cannot move into this
+--- particular container at all - a filter in the way, an external supply,
+--- a category the container refuses - and no amount of water in the
+--- barrel makes those work.
+---
+--- A test that throws answers false. An offer that cannot be honoured is
+--- worse than one that is never made.
+---
+--- Taken from upstream Auto All's own fill, 2026-09-06.
+function Water.canFill(object, container)
+    if not object or not container then return false end
+    local ok, can = pcall(function() return object:canTransferFluidTo(container) end)
+    return ok and can == true
+end

@@ -404,11 +404,16 @@ end
 --- The best water within WATER_REACH, or nil. Returns the source and
 --- whether its water is tainted.
 ---
---- Usable means all four of: the character could walk to it, the game
+--- Usable means all five of: the character could walk to it, the game
 --- calls it a water fixture, what is in it is actually water rather than
---- petrol or paint, and there is at least `need` litres of it. Clean
---- water beats tainted, and among equals the shorter walk wins.
-function Cook.findWaterSource(player, need)
+--- petrol or paint, there is at least `need` litres of it, and the game
+--- would pour it into `container` if asked by hand. Clean water beats
+--- tainted, and among equals the shorter walk wins.
+---
+--- `container` is the pot's own FluidContainer and is optional: without
+--- one the last test is skipped, which is the same answer this gave
+--- before that test existed.
+function Cook.findWaterSource(player, need, container)
     local square = player:getSquare()
     local cell = getCell()
     if not square or not cell then return nil, false end
@@ -430,7 +435,8 @@ function Cook.findWaterSource(player, need)
                     -- option offered.
                     if not instanceof(object, "IsoWorldInventoryObject")
                             and AA.Water.isFixture(object) and AA.Water.hasWater(object)
-                            and AA.Water.amountOf(object) >= need then
+                            and AA.Water.amountOf(object) >= need
+                            and (container == nil or AA.Water.canFill(object, container)) then
                         local tainted = AA.Water.isTainted(object)
                         local score = (tainted and 1000 or 0) + math.abs(dx) + math.abs(dy)
                         if bestScore == nil or score < bestScore then
@@ -466,7 +472,7 @@ function Cook.reachableWaterRecipes(player, base, containerList)
     for _, recipe in ipairs(Cook.waterRecipes(player, base, containerList)) do
         local need = waterShortfall(base, recipe)
         if found[need] == nil then
-            found[need] = { Cook.findWaterSource(player, need) }
+            found[need] = { Cook.findWaterSource(player, need, base:getFluidContainer()) }
         end
         local source, tainted = found[need][1], found[need][2]
         if source then
@@ -1000,7 +1006,7 @@ local function fillThink(task)
     end
 
     local need = waterShortfall(base, recipe)
-    local source, tainted = Cook.findWaterSource(player, need)
+    local source, tainted = Cook.findWaterSource(player, need, base:getFluidContainer())
     if not source then
         stopFilling(task, "no water source within " .. tostring(WATER_REACH)
                 .. " tiles holding " .. tostring(need) .. " litres")
