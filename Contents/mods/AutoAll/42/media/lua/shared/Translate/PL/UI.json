@@ -486,5 +486,9 @@
     "UI_MM_opt_titleRead": "Czytanie",
     "UI_MM_opt_autoRead": "Czytaj podczas odpoczynku",
     "UI_MM_opt_autoRead_tt": "Miedzy seriami postac czyta przydatna ksiazke z wlasnego ekwipunku i odklada ja, gdy tylko wroci kondycja. Korzysta z tych samych zasad co Auto Czytanie.",
-    "UI_MM_reading": "Czytam %1."
+    "UI_MM_reading": "Czytam %1.",
+    "UI_AA_opt_cookFillWater": "Najpierw napelnij pusty garnek woda",
+    "UI_AA_opt_cookFillWater_tt": "Proponuje Auto Gotowanie na pustym garnku lub kubku, gdy w zasiegu jest zlew, beczka albo studnia. Garnek jest napelniany wlasna akcja gry, wiec kosztuje tyle samo wody co napelnianie recznie.",
+    "UI_AA_cook_filling": "Napelniam woda...",
+    "UI_AA_cook_nowater": "W zasiegu nie ma zrodla wody, ktore moze to napelnic."
 }

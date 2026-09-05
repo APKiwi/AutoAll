@@ -486,5 +486,9 @@
     "UI_MM_opt_titleRead": "Leitura",
     "UI_MM_opt_autoRead": "Ler enquanto descansa",
     "UI_MM_opt_autoRead_tt": "Entre as series o personagem le um livro util do proprio inventario e larga ele assim que o folego volta. Usa o mesmo criterio do Auto Ler para decidir o que vale a pena.",
-    "UI_MM_reading": "Lendo %1."
+    "UI_MM_reading": "Lendo %1.",
+    "UI_AA_opt_cookFillWater": "Encher a panela vazia com agua antes",
+    "UI_AA_opt_cookFillWater_tt": "Oferece o Auto Cozinhar numa panela ou caneca vazia quando ha uma pia, barril ou poco ao alcance. A panela e enchida com a acao de Encher do proprio jogo, entao custa a mesma agua que encher na mao.",
+    "UI_AA_cook_filling": "Enchendo com agua...",
+    "UI_AA_cook_nowater": "Nao ha fonte de agua ao alcance que possa encher isso."
 }

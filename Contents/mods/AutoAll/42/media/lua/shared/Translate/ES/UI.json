@@ -486,5 +486,9 @@
     "UI_MM_opt_titleRead": "Lectura",
     "UI_MM_opt_autoRead": "Leer mientras descansa",
     "UI_MM_opt_autoRead_tt": "Entre series el personaje lee un libro util de su propio inventario y lo deja en cuanto recupera el aliento. Usa el mismo criterio de Auto Leer.",
-    "UI_MM_reading": "Leyendo %1."
+    "UI_MM_reading": "Leyendo %1.",
+    "UI_AA_opt_cookFillWater": "Llenar antes la olla vacia con agua",
+    "UI_AA_opt_cookFillWater_tt": "Ofrece Auto Cocinar en una olla o taza vacia cuando hay un fregadero, barril o pozo al alcance. La olla se llena con la accion de Llenar del propio juego, asi que cuesta la misma agua que llenarla a mano.",
+    "UI_AA_cook_filling": "Llenandola de agua...",
+    "UI_AA_cook_nowater": "No hay ninguna fuente de agua al alcance que pueda llenar esto."
 }

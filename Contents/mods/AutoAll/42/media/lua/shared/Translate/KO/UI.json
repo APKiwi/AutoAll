@@ -158,5 +158,9 @@
     "UI_MM_opt_titleRead": "Reading",
     "UI_MM_opt_autoRead": "Read while resting",
     "UI_MM_opt_autoRead_tt": "Between sets the character reads a useful book from their own inventory and puts it down the moment endurance is back. Uses Auto Read’s own judgement of what is worth reading.",
-    "UI_MM_reading": "Reading %1."
+    "UI_MM_reading": "Reading %1.",
+    "UI_AA_opt_cookFillWater": "Fill an empty pot with water first",
+    "UI_AA_opt_cookFillWater_tt": "Offers Auto Cook on an empty pot or mug when there is a sink, barrel or well within reach. The pot is filled with the game’s own Fill action, so it costs the same water as filling it by hand.",
+    "UI_AA_cook_filling": "Filling it with water...",
+    "UI_AA_cook_nowater": "There is no water source within reach that can fill this."
 }

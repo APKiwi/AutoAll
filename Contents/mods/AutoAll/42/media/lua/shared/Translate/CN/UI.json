@@ -486,5 +486,9 @@
     "UI_MM_opt_titleRead": "阅读",
     "UI_MM_opt_autoRead": "休息时看书",
     "UI_MM_opt_autoRead_tt": "组间休息时，角色会看自己物品栏里有用的书，体力一恢复就放下。判断标准与自动阅读相同。",
-    "UI_MM_reading": "正在阅读 %1。"
+    "UI_MM_reading": "正在阅读 %1。",
+    "UI_AA_opt_cookFillWater": "先把空锅装满水",
+    "UI_AA_opt_cookFillWater_tt": "当附近有水槽、水桶或水井时，在空锅或空杯上也提供自动烹饪。锅由游戏自己的装水动作装满，因此消耗的水和手动装满完全一样。",
+    "UI_AA_cook_filling": "正在装水……",
+    "UI_AA_cook_nowater": "附近没有能装满它的水源。"
 }

@@ -486,5 +486,9 @@
     "UI_MM_opt_titleRead": "Lettura",
     "UI_MM_opt_autoRead": "Leggi mentre riposi",
     "UI_MM_opt_autoRead_tt": "Tra una serie e l altra il personaggio legge un libro utile dal proprio inventario e lo posa appena torna il fiato. Usa lo stesso criterio di Auto Leggi.",
-    "UI_MM_reading": "Sto leggendo %1."
+    "UI_MM_reading": "Sto leggendo %1.",
+    "UI_AA_opt_cookFillWater": "Riempi prima la pentola vuota",
+    "UI_AA_opt_cookFillWater_tt": "Offre Auto Cucina su una pentola o tazza vuota quando c e un lavandino, un barile o un pozzo a portata. La pentola viene riempita con l azione Riempi del gioco stesso, quindi costa la stessa acqua di un riempimento a mano.",
+    "UI_AA_cook_filling": "La riempio di acqua...",
+    "UI_AA_cook_nowater": "Non c e nessuna fonte d acqua a portata che possa riempirla."
 }

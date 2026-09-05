@@ -486,5 +486,9 @@
     "UI_MM_opt_titleRead": "Lecture",
     "UI_MM_opt_autoRead": "Lire pendant le repos",
     "UI_MM_opt_autoRead_tt": "Entre les series le personnage lit un livre utile de son propre inventaire et le repose des que l’endurance revient. Utilise le jugement d’Auto Lecture.",
-    "UI_MM_reading": "Lecture de %1."
+    "UI_MM_reading": "Lecture de %1.",
+    "UI_AA_opt_cookFillWater": "Remplir d’abord la casserole vide",
+    "UI_AA_opt_cookFillWater_tt": "Propose Auto Cuisine sur une casserole ou une tasse vide quand un evier, un tonneau ou un puits est a portee. La casserole est remplie avec l’action Remplir du jeu, elle coute donc la meme eau qu’un remplissage a la main.",
+    "UI_AA_cook_filling": "Remplissage avec de l’eau...",
+    "UI_AA_cook_nowater": "Aucune source d’eau a portee ne peut remplir ceci."
 }

@@ -486,5 +486,9 @@
     "UI_MM_opt_titleRead": "Lesen",
     "UI_MM_opt_autoRead": "Beim Ausruhen lesen",
     "UI_MM_opt_autoRead_tt": "Zwischen den Saetzen liest die Figur ein nuetzliches Buch aus dem eigenen Inventar und legt es weg, sobald die Ausdauer zurueck ist. Nutzt Auto Lesens eigenes Urteil.",
-    "UI_MM_reading": "Liest %1."
+    "UI_MM_reading": "Liest %1.",
+    "UI_AA_opt_cookFillWater": "Leeren Topf zuerst mit Wasser fuellen",
+    "UI_AA_opt_cookFillWater_tt": "Bietet Auto Kochen an einem leeren Topf oder Becher an, wenn ein Waschbecken, Fass oder Brunnen in Reichweite ist. Der Topf wird mit der spieleigenen Fuellen-Aktion gefuellt und kostet daher dasselbe Wasser wie von Hand.",
+    "UI_AA_cook_filling": "Wird mit Wasser gefuellt...",
+    "UI_AA_cook_nowater": "Keine Wasserquelle in Reichweite, die das fuellen kann."
 }
