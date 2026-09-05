@@ -1,7 +1,7 @@
 name=[B42.20] Auto All (Fixed) - Cook, Read, Clean, Sterilize, Rip, Tailoring, Mechanics, Reload & Dismantle
 id=AutoAllFixed
 incompatible=AutoAll
-description=Fix fork of Auto All by Robson Foster. All credit for the mod is theirs. Every fix that started here has been merged into the original with credit, and this fork now tracks the original file for file.
+description=Fork of Auto All by Robson Foster. All credit for the mod is theirs. It started as multiplayer fixes, all of which went upstream with credit, and has since gone its own way: every module audited with the findings fixed, and features on top. Upstream's own patches are read and taken as they land.
 description=Original: https://steamcommunity.com/sharedfiles/filedetails/?id=3777237134
 description=Do not run this and the original at the same time. The mod list will stop you: this declares the original as incompatible.
 description=Why it still exists: fixes ship here the day they are found, then go upstream. If you are not on a server that runs this, use the original.
@@ -17,8 +17,8 @@ description=Train Tailoring: one button on the clothing inspection window patche
 description=Auto Mechanics: two entries on the vehicle mechanics window strip a car of every part it will give up, or fit every part you are carrying, one at a time. Parts the game does not give a sure thing on are skipped rather than gambled with.
 description=Train Reload: right click a magazine or a firearm and the character loads and unloads it in a loop until you move or press ESC.
 description=Every automation queues its work in batches of vanilla timed actions, so XP, animations, sounds and multiplayer sync are the base game's, and single player can fast forward straight through the job.
-description=Auto Medicine: right click any body part in the Health window and the character treats every wound in one go - bullets and glass out, burns washed, wounds disinfected and bandaged, a sterilised bandage first when you have one.
-description=Auto Exercise: the Muscle Manager loop, built in. Tick AUTO on the vanilla Fitness panel and the character trains, rests when endurance runs out and starts the next set on its own, eating and treating pain from nearby bags if it needs to.
+description=Auto Medicine: right click any body part in the Health window and the character treats every wound in one go - bullets and glass out, burns washed, fractures splinted, wounds disinfected and bandaged, a sterilised bandage first when you have one.
+description=Auto Exercise: the Muscle Manager loop, built in. Tick AUTO on the vanilla Fitness panel and the character trains, rests when endurance runs out and starts the next set on its own, eating, reading and treating pain from nearby bags if it needs to.
 description=Auto VHS: right click any tape and the character watches every recording within reach that still teaches something, then takes it back out.
 description=Auto Open: right click a sealed tin or a preserved jar and the character opens every one within reach, fetching them out of containers and picking the can opener up only once. The opened food goes back where the sealed one came from.
 poster=poster.png
