@@ -475,5 +475,7 @@
     "UI_AA_rip_blocked": "Il y a de quoi decouper, mais rien qui puisse l'etre maintenant. Reessayez dans un instant.",
     "UI_AA_opt_dismantleSkipFavorite": "Ne jamais demonter les favoris",
     "UI_AA_opt_dismantleSkipFavorite_tt": "Les objets marques comme favoris sont laisses tranquilles. Sans cela, une seule montre favorite arrete tout le lot au lieu d etre ignoree.",
-    "UI_AA_dismantle_blocked": "Rien ici ne peut etre demonte pour le moment. Les objets portes, casses ou deja utilises ne comptent pas."
+    "UI_AA_dismantle_blocked": "Rien ici ne peut etre demonte pour le moment. Les objets portes, casses ou deja utilises ne comptent pas.",
+    "UI_AA_opt_ignoreNpcs": "Ignorer les PNJ qui ne vous chassent pas",
+    "UI_AA_opt_ignoreNpcs_tt": "Tous les mods de PNJ construisent leurs personnages comme des zombies, donc le jeu compte votre propre compagnon comme tel. Avec ceci, seuls les vrais zombies et les PNJ qui vous ont pour cible arretent une tache."
 }

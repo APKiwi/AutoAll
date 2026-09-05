@@ -475,5 +475,7 @@
     "UI_AA_rip_blocked": "Ho trovato roba da strappare, ma niente si puo strappare adesso. Riprova tra un attimo.",
     "UI_AA_opt_dismantleSkipFavorite": "Non smontare mai i preferiti",
     "UI_AA_opt_dismantleSkipFavorite_tt": "Gli oggetti segnati come preferiti restano intatti. Senza questo, un solo orologio preferito ferma tutto il lotto invece di essere saltato.",
-    "UI_AA_dismantle_blocked": "Non c e nulla da smontare adesso. Gli oggetti indossati, rotti o gia usati non contano."
+    "UI_AA_dismantle_blocked": "Non c e nulla da smontare adesso. Gli oggetti indossati, rotti o gia usati non contano.",
+    "UI_AA_opt_ignoreNpcs": "Ignora gli NPC che non ti stanno cacciando",
+    "UI_AA_opt_ignoreNpcs_tt": "Ogni mod di NPC costruisce i suoi personaggi come zombie, quindi il gioco conta il tuo compagno come uno di loro. Con questo attivo, solo gli zombie veri e gli NPC che ti hanno come bersaglio fermano un lavoro."
 }

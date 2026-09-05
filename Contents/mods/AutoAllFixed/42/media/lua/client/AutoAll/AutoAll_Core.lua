@@ -638,6 +638,74 @@ local function expectedDamage(task)
     return ok and expected == true
 end
 
+---------------------------------------------------------------------
+-- companions are not a horde
+--
+-- From upstream Auto All, 2026-09-06.
+--
+-- > *[Jester]:* "is there anyway to stop it reading true companions as
+-- > zombies? it stops running when one gets close."
+--
+-- They are. Every NPC mod in the game - True Companions, Bandits,
+-- Superb Survivors - builds its characters as IsoZombie, because that is
+-- the only mover the engine gives a mod. So getNumVisibleZombies counts
+-- the friend standing next to you, and the safety rule that exists to
+-- stop a job when the horde arrives fired on your own follower.
+--
+-- The counters are Java-side totals with no way to filter them, so the
+-- only route is to look at what is actually nearby when they fire, and
+-- decide whether any of it is a threat.
+--
+-- The test is deliberately NOT "is it an NPC". A hostile bandit is an
+-- NPC too, and stopping for one is exactly right. What separates them is
+-- what they are doing: an NPC that is not hunting you is a bystander, an
+-- NPC that has you as its target is a threat, and a real zombie is
+-- always a threat.
+--
+-- IsoGameCharacter.isNpc() is hasECSComponent(AIComponent), so a vanilla
+-- zombie never answers it. An NPC mod that does not attach that
+-- component makes this option a no-op, which is the safe direction to
+-- fail in: the job stops as it always did.
+---------------------------------------------------------------------
+
+-- How far out something has to be before it stops counting as "near".
+-- Twenty tiles, which is the ceiling the engine itself puts on a
+-- zombie's vision radius (IsoZombie.updateVisionRadius ends in
+-- PZMath.clamp(radius, 10, 20)), so nothing that can see you is ignored.
+local NEAR_RADIUS2 = 20 * 20
+
+--- True when everything close enough to matter is an NPC minding its own
+--- business. False the moment a real zombie, or an NPC hunting you, is
+--- found - so the expensive case is the safe one.
+local function onlyBystandersNear(player)
+    local cell = getCell()
+    if not cell then return false end
+
+    local ok, harmless = pcall(function()
+        local list = cell:getZombieList()
+        if not list then return false end
+
+        local px, py = player:getX(), player:getY()
+
+        for i = 0, list:size() - 1 do
+            local z = list:get(i)
+            if z and not z:isDead() then
+                -- Distance first: it is two field reads, where isNpc is a
+                -- call. In a real horde this short-circuits on the first
+                -- one close enough.
+                local dx, dy = z:getX() - px, z:getY() - py
+                if (dx * dx + dy * dy) <= NEAR_RADIUS2 then
+                    if not z:isNpc() then return false end
+                    if z:getTarget() == player then return false end
+                end
+            end
+        end
+        return true
+    end)
+
+    return ok and harmless == true
+end
+
 --- Returns a message when the task must end, nil otherwise.
 function AA.checkSafety(task)
     local player = task.player
@@ -648,7 +716,12 @@ function AA.checkSafety(task)
         local stats = player:getStats()
         if stats:getNumVisibleZombies() > 0 or stats:getNumChasingZombies() > 0
                 or stats:getNumVeryCloseZombies() > 0 then
-            return getText("UI_AA_stop_zombie")
+            -- Something is there. The scan below only runs on this branch,
+            -- which is the rare one, and only asks whether all of it is
+            -- friendly NPCs. See the note above onlyBystandersNear.
+            if not (AA.opt("ignoreNpcs") and onlyBystandersNear(player)) then
+                return getText("UI_AA_stop_zombie")
+            end
         end
     end
 

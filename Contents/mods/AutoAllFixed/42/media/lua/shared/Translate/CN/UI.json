@@ -475,5 +475,7 @@
     "UI_AA_rip_blocked": "找到了可以撕开的东西，但现在都撕不了。请稍后再试。",
     "UI_AA_opt_dismantleSkipFavorite": "绝不拆解收藏物品",
     "UI_AA_opt_dismantleSkipFavorite_tt": "标记为收藏的物品会被保留。关闭此项时，一块收藏的手表会让整批停下，而不是被跳过。",
-    "UI_AA_dismantle_blocked": "现在这里没有可拆解的东西。穿戴中、损坏或已使用的物品不计入。"
+    "UI_AA_dismantle_blocked": "现在这里没有可拆解的东西。穿戴中、损坏或已使用的物品不计入。",
+    "UI_AA_opt_ignoreNpcs": "忽略没有在追你的 NPC",
+    "UI_AA_opt_ignoreNpcs_tt": "所有 NPC 模组都把角色做成僵尸，所以游戏会把你自己的同伴也算进去。开启后，只有真正的僵尸和以你为目标的 NPC 才会中断作业。"
 }

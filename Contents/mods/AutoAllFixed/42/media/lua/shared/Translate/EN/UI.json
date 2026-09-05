@@ -492,5 +492,7 @@
     "UI_AA_opt_cookFillWater_tt": "When the pot is empty, looks four tiles around for a sink, barrel or well with enough water in it and fills the pot before cooking.",
     "UI_AA_cook_combo_water": "%1 (gets water first)",
     "UI_AA_opt_dismantleSkipFavorite": "Never take apart favourites",
-    "UI_AA_opt_dismantleSkipFavorite_tt": "Items flagged as favourite are left alone. With this off, one favourited watch stops the whole batch rather than being skipped."
+    "UI_AA_opt_dismantleSkipFavorite_tt": "Items flagged as favourite are left alone. With this off, one favourited watch stops the whole batch rather than being skipped.",
+    "UI_AA_opt_ignoreNpcs": "Ignore NPCs that are not hunting you",
+    "UI_AA_opt_ignoreNpcs_tt": "Every NPC mod builds its characters as zombies, so the game counts your own companion as one. With this on, only real zombies and NPCs that have you as their target stop a job."
 }

@@ -171,6 +171,11 @@ AA.defaults = {
     stopOnAim          = true,
     stopOnEsc          = true,
     stopZombie         = true,
+    -- On by default: an NPC that is not hunting you is not the danger the
+    -- rule above exists for, and every NPC mod builds its characters as
+    -- IsoZombie so the game's own counters cannot tell them apart. Turn
+    -- it off to stop for anything at all, NPC or not.
+    ignoreNpcs         = true,
     stopDamage         = true,
 
     -- The Auto All tab in the character window. On by default; a
@@ -450,6 +455,7 @@ local function createModOptions()
     options:addTickBox("stopOnAim", "UI_AA_opt_stopOnAim", d.stopOnAim, "UI_AA_opt_stopOnAim_tt")
     options:addTickBox("stopOnEsc", "UI_AA_opt_stopOnEsc", d.stopOnEsc, "UI_AA_opt_stopOnEsc_tt")
     options:addTickBox("stopZombie", "UI_AA_opt_stopZombie", d.stopZombie, "UI_AA_opt_stopZombie_tt")
+    options:addTickBox("ignoreNpcs", "UI_AA_opt_ignoreNpcs", d.ignoreNpcs, "UI_AA_opt_ignoreNpcs_tt")
     options:addTickBox("stopDamage", "UI_AA_opt_stopDamage", d.stopDamage, "UI_AA_opt_stopDamage_tt")
 
     options:addTitle("UI_AA_opt_titleMisc")
