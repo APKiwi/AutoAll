@@ -479,5 +479,8 @@
     "UI_AA_opt_ignoreNpcs": "Ignoruj NPC, ktorzy na ciebie nie poluja",
     "UI_AA_opt_ignoreNpcs_tt": "Kazdy mod z NPC tworzy swoje postacie jako zombie, wiec gra liczy twojego wlasnego towarzysza jako jednego z nich. Z ta opcja prace przerywaja tylko prawdziwe zombie i NPC, ktorzy maja ciebie za cel.",
     "UI_AA_opt_medSplint": "Zakladaj szyne na zlamanie",
-    "UI_AA_opt_medSplint_tt": "Uzywa szyny, albo deski i podartego przescieradla, na zlamanej konczynie przed opatrzeniem - te same zasady co okno zdrowia. Nigdy na glowe ani tulow."
+    "UI_AA_opt_medSplint_tt": "Uzywa szyny, albo deski i podartego przescieradla, na zlamanej konczynie przed opatrzeniem - te same zasady co okno zdrowia. Nigdy na glowe ani tulow.",
+    "UI_AA_opt_vhsBooksOnly": "Tylko kasety, ktorych podrecznik przeczytalem",
+    "UI_AA_opt_vhsBooksOnly_tt": "Doswiadczenie z kasety jest mnozone przez bonus z podrecznika, a jej kwestie zuzywaja sie tak czy inaczej. Z ta opcja kaseta jest ogladana tylko wtedy, gdy bonus tego podrecznika dziala. Umiejetnosci bez podrecznika sa ogladane zawsze.",
+    "UI_AA_vhs_nobook": "Zadna kaseta w zasiegu nie pasuje do przeczytanego podrecznika."
 }

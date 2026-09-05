@@ -479,5 +479,8 @@
     "UI_AA_opt_ignoreNpcs": "NPCs ignorieren, die dich nicht jagen",
     "UI_AA_opt_ignoreNpcs_tt": "Jede NPC-Mod baut ihre Figuren als Zombies, also zaehlt das Spiel deinen eigenen Begleiter als einen. Damit stoppen nur echte Zombies und NPCs, die dich als Ziel haben, eine Aufgabe.",
     "UI_AA_opt_medSplint": "Bruch schienen",
-    "UI_AA_opt_medSplint_tt": "Legt eine Schiene an, oder ein Brett und ein zerrissenes Laken, bevor ein gebrochenes Glied verbunden wird - nach denselben Regeln wie das Gesundheitsfenster. Nie am Kopf oder Rumpf."
+    "UI_AA_opt_medSplint_tt": "Legt eine Schiene an, oder ein Brett und ein zerrissenes Laken, bevor ein gebrochenes Glied verbunden wird - nach denselben Regeln wie das Gesundheitsfenster. Nie am Kopf oder Rumpf.",
+    "UI_AA_opt_vhsBooksOnly": "Nur Kassetten, deren Fachbuch ich gelesen habe",
+    "UI_AA_opt_vhsBooksOnly_tt": "Die XP einer Kassette werden mit dem Bonus des Fachbuchs multipliziert, und ihre Zeilen sind so oder so verbraucht. Damit wird eine Kassette nur angesehen, solange der Buchbonus dieser Faehigkeit aktiv ist. Faehigkeiten ohne Buch werden immer angesehen.",
+    "UI_AA_vhs_nobook": "Keine Kassette in Reichweite passt zu einem gelesenen Fachbuch."
 }

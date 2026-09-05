@@ -479,5 +479,8 @@
     "UI_AA_opt_ignoreNpcs": "Ignorer les PNJ qui ne vous chassent pas",
     "UI_AA_opt_ignoreNpcs_tt": "Tous les mods de PNJ construisent leurs personnages comme des zombies, donc le jeu compte votre propre compagnon comme tel. Avec ceci, seuls les vrais zombies et les PNJ qui vous ont pour cible arretent une tache.",
     "UI_AA_opt_medSplint": "Attelle sur une fracture",
-    "UI_AA_opt_medSplint_tt": "Pose une attelle, ou une planche et un drap dechire, sur un membre casse avant de le bander - les memes regles que la fenetre de Sante. Jamais la tete ni le torse."
+    "UI_AA_opt_medSplint_tt": "Pose une attelle, ou une planche et un drap dechire, sur un membre casse avant de le bander - les memes regles que la fenetre de Sante. Jamais la tete ni le torse.",
+    "UI_AA_opt_vhsBooksOnly": "Seulement les cassettes dont j’ai lu le manuel",
+    "UI_AA_opt_vhsBooksOnly_tt": "L’XP d’une cassette est multipliee par le bonus du manuel, et ses lignes sont depensees que vous l’ayez lu ou non. Avec ceci, une cassette n’est regardee que tant que le bonus de ce manuel est actif. Les competences sans manuel sont toujours regardees.",
+    "UI_AA_vhs_nobook": "Aucune cassette a portee ne correspond a un manuel que vous avez lu."
 }

@@ -479,5 +479,8 @@
     "UI_AA_opt_ignoreNpcs": "Ignora gli NPC che non ti stanno cacciando",
     "UI_AA_opt_ignoreNpcs_tt": "Ogni mod di NPC costruisce i suoi personaggi come zombie, quindi il gioco conta il tuo compagno come uno di loro. Con questo attivo, solo gli zombie veri e gli NPC che ti hanno come bersaglio fermano un lavoro.",
     "UI_AA_opt_medSplint": "Stecca su una frattura",
-    "UI_AA_opt_medSplint_tt": "Usa una stecca, o un asse e un lenzuolo strappato, su un arto rotto prima di fasciarlo - le stesse regole della finestra Salute. Mai la testa o il torso."
+    "UI_AA_opt_medSplint_tt": "Usa una stecca, o un asse e un lenzuolo strappato, su un arto rotto prima di fasciarlo - le stesse regole della finestra Salute. Mai la testa o il torso.",
+    "UI_AA_opt_vhsBooksOnly": "Solo le cassette di cui ho letto il manuale",
+    "UI_AA_opt_vhsBooksOnly_tt": "L XP di una cassetta viene moltiplicato dal bonus del manuale, e le sue righe si consumano comunque. Con questo attivo una cassetta viene guardata solo mentre il bonus di quel manuale e attivo. Le abilita senza manuale nel gioco vengono sempre guardate.",
+    "UI_AA_vhs_nobook": "Nessuna cassetta a portata corrisponde a un manuale che hai letto."
 }

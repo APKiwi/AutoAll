@@ -123,6 +123,12 @@ AA.defaults = {
 
     -- watching tapes
     vhsNearby          = true,  -- also take tapes from the containers in reach
+    -- Off by default: it changes which tapes get picked up, and nobody
+    -- should have that change under them on an update. A tape's XP is
+    -- multiplied by the skill book's own multiplier, so a tape watched
+    -- before the book is worth a third to a sixteenth of what it would
+    -- have been - and the lines are spent either way.
+    vhsBooksOnly       = false, -- only tapes whose skill book is already paying a multiplier
     vhsReturnItems     = true,  -- put each watched tape back where it came from
     vhsMaxTapes        = 0,     -- 0 = until there is nothing left worth watching
 
@@ -441,6 +447,7 @@ local function createModOptions()
 
     options:addTitle("UI_AA_opt_titleVHS")
     options:addTickBox("vhsNearby", "UI_AA_opt_vhsNearby", d.vhsNearby, "UI_AA_opt_vhsNearby_tt")
+    options:addTickBox("vhsBooksOnly", "UI_AA_opt_vhsBooksOnly", d.vhsBooksOnly, "UI_AA_opt_vhsBooksOnly_tt")
     options:addTickBox("vhsReturnItems", "UI_AA_opt_vhsReturnItems", d.vhsReturnItems, "UI_AA_opt_vhsReturnItems_tt")
     options:addSlider("vhsMaxTapes", "UI_AA_opt_vhsMaxTapes", 0, 50, 1, d.vhsMaxTapes, "UI_AA_opt_vhsMaxTapes_tt")
 

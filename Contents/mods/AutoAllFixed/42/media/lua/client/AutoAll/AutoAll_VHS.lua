@@ -111,6 +111,81 @@ local function perkFor(code)
     return perkCache[code] or nil
 end
 
+---------------------------------------------------------------------
+-- "only the ones I have read the books for"
+--
+-- From upstream Auto All, 2026-09-06.
+--
+-- > *lolkatiekat:* "for auto VHS, an option to only watch the ones
+-- > you've read the books for"
+--
+-- The game keeps no list of skill books a character has finished.
+-- IsoPlayer.getAlreadyReadBook() looks like one and is not:
+-- ISReadABook only fills it for items with learned recipes
+-- (ISReadABook.lua:331-332), so it holds magazines and never a skill
+-- book. getAlreadyReadPages is per item type and is wiped to 0
+-- whenever the book reads as too complicated or too simple.
+--
+-- What the game does keep is the thing that makes the request worth
+-- making. Reading a skill book calls addXpMultiplier
+-- (ISReadABook.lua:340), and every point of XP a tape hands out goes
+-- through IsoGameCharacter$XP.AddXP, which multiplies by exactly that.
+-- A tape watched without the book is worth 1x; the same tape after
+-- the book is worth 3x to 16x - and its lines are spent for good
+-- either way.
+--
+-- getMultiplier(perk) > 0 is vanilla's own test for "this skill has a
+-- live book bonus": it draws the arrows in the skills panel
+-- (ISCharacterInfo.lua:155) and the multiplier line in the skill
+-- tooltip (ISSkillProgressBar.lua:71). AddXP drops the entry once the
+-- character's XP leaves the band the book covered, so it answers "I
+-- have read the book that covers where I am now" - the honest reading
+-- of the request.
+---------------------------------------------------------------------
+
+--- Perk ids that some skill book in this build trains.
+---
+--- Built from vanilla's own SkillBook table rather than a list typed
+--- out here, so a mod that registers its own skill book is picked up
+--- for free. Keyed by getId() rather than by the perk object, because
+--- a Java object reached through Perks.X is not guaranteed to be the
+--- same Lua value twice and a table key has to be. Built lazily:
+--- SkillBook lives in media/lua/server and must not be touched at
+--- file load.
+local bookPerks = nil
+
+local function skillHasABook(perk)
+    if bookPerks == nil then
+        bookPerks = {}
+        if type(SkillBook) == "table" then
+            for _, entry in pairs(SkillBook) do
+                local ok, id = pcall(function() return entry.perk:getId() end)
+                if ok and id then bookPerks[id] = true end
+            end
+        end
+    end
+
+    local ok, id = pcall(function() return perk:getId() end)
+    return ok and id ~= nil and bookPerks[id] == true
+end
+
+--- True when a skill book is currently paying a multiplier on this perk.
+local function bookRead(player, perk)
+    local ok, multiplier = pcall(function() return player:getXp():getMultiplier(perk) end)
+    return ok and type(multiplier) == "number" and multiplier > 0
+end
+
+--- Would the book gate throw this skill away for good?
+---
+--- Ten of the thirty-three codes name a skill no book in the game
+--- teaches - sprinting, lightfoot, nimble, sneaking and the six melee
+--- ones. There is no book to go and read for those, so gating them
+--- would hide those tapes for ever rather than defer them.
+local function blockedByBook(player, perk)
+    if not skillHasABook(perk) then return false end
+    return not bookRead(player, perk)
+end
+
 --- The level at which media stops teaching a skill.
 ---
 --- doSkill's first line is
@@ -139,7 +214,7 @@ end
 --- because that is the function that will run when the line plays:
 --- entries shorter than five characters are ignored, characters 1-3 are
 --- the code, character 4 is the operator and the rest is the amount.
-local function codeTeaches(player, entry)
+local function codeTeaches(player, entry, gateBooks)
     if string.len(entry) <= 4 then return false end
 
     local code = string.sub(entry, 1, 3)
@@ -168,6 +243,10 @@ local function codeTeaches(player, entry)
     local ok, level = pcall(function() return player:getPerkLevel(perk) end)
     if ok and type(level) == "number" and level >= xpCutoff() then return false end
 
+    -- RCP is deliberately above this and untouched: a recipe is learned
+    -- outright, there is no multiplier for a book to raise.
+    if gateBooks and blockedByBook(player, perk) then return false end
+
     return true
 end
 
@@ -182,8 +261,13 @@ end
 --- nil when the tape has nothing left to teach, otherwise
 --- { item, index, lines }, where `lines` counts the unheard lines that
 --- still give something and `index` identifies the recording.
-function VHS.appraise(player, item)
+--- `ignoreBooks` skips the "only tapes whose book I have read" gate.
+--- Used to count what that gate is holding back, so a greyed entry can
+--- say which of the two reasons applies.
+function VHS.appraise(player, item, ignoreBooks)
     if not VHS.isTape(item) then return nil end
+
+    local gateBooks = (not ignoreBooks) and AA.opt("vhsBooksOnly") == true
 
     local ok, media = pcall(function() return item:getMediaData() end)
     if not ok or not media then return nil end
@@ -203,7 +287,7 @@ function VHS.appraise(player, item)
                 local codes = line:getCodes()
                 if codes and codes ~= "" then
                     for _, entry in ipairs(splitCodes(codes)) do
-                        if codeTeaches(player, entry) then
+                        if codeTeaches(player, entry, gateBooks) then
                             teaching = teaching + 1
                             break
                         end
@@ -233,7 +317,7 @@ local function isRecordedPredicate(item)
     return item:isRecordedMedia()
 end
 
-local function scan(container, player, found, seen)
+local function scan(container, player, found, seen, stats)
     if not container then return end
 
     local items = container:getAllEvalRecurse(isRecordedPredicate, ArrayList.new())
@@ -245,28 +329,37 @@ local function scan(container, player, found, seen)
         if not seen[id] then
             seen[id] = true
             local entry = VHS.appraise(player, item)
-            if entry then table.insert(found, entry) end
+            if entry then
+                table.insert(found, entry)
+            elseif stats and VHS.appraise(player, item, true) then
+                stats.blocked = stats.blocked + 1
+            end
         end
     end
 end
 
 --- Every tape within reach: the character's own inventory and bags, plus
 --- the containers the loot window is showing.
+--- @return table found, number blockedByTheBookGate
 function VHS.collect(player)
     local found, seen = {}, {}
+    -- Counted only while the gate is on: it costs a second appraisal
+    -- per rejected tape, and it exists solely so a greyed entry can say
+    -- "read the book first" instead of "nothing here teaches anything".
+    local stats = AA.opt("vhsBooksOnly") and { blocked = 0 } or nil
 
-    scan(player:getInventory(), player, found, seen)
+    scan(player:getInventory(), player, found, seen, stats)
 
     if AA.opt("vhsNearby") then
         local containers = ISInventoryPaneContextMenu.getContainers(player)
         if containers then
             for i = 0, containers:size() - 1 do
-                scan(containers:get(i), player, found, seen)
+                scan(containers:get(i), player, found, seen, stats)
             end
         end
     end
 
-    return found
+    return found, stats and stats.blocked or 0
 end
 
 --- The next tape to put in, or nil.
@@ -278,7 +371,10 @@ end
 function VHS.pickNext(task)
     local best = nil
 
-    for _, entry in ipairs(VHS.collect(task.player)) do
+    -- Bound to a local first: collect returns two values now, and
+    -- ipairs would take the second one as its own argument.
+    local tapes = VHS.collect(task.player)
+    for _, entry in ipairs(tapes) do
         if not task.done[entry.index] and not task.failed[entry.index] then
             -- The tape the player actually right clicked goes in first.
             if task.first and entry.item:getID() == task.first then
@@ -770,9 +866,10 @@ function VHS.start(player, device, firstItem)
         return
     end
 
-    local found = VHS.collect(player)
+    local found, blocked = VHS.collect(player)
     if #found == 0 then
-        HaloTextHelper.addBadText(player, getText("UI_AA_vhs_nothing"))
+        HaloTextHelper.addBadText(player,
+                getText(blocked > 0 and "UI_AA_vhs_nobook" or "UI_AA_vhs_nothing"))
         return
     end
 
@@ -851,10 +948,11 @@ local function addVHSMenu(playerNum, context, items)
             option.notAvailable = true
             tooltip.description = getText("UI_AA_vhs_nopower")
         else
-            local found = VHS.collect(player)
+            local found, blocked = VHS.collect(player)
             if #found == 0 then
                 option.notAvailable = true
-                tooltip.description = getText("UI_AA_vhs_nothing")
+                tooltip.description = getText(blocked > 0
+                        and "UI_AA_vhs_nobook" or "UI_AA_vhs_nothing")
             else
                 tooltip.description = getText("UI_AA_vhs_option_tt", #found)
             end

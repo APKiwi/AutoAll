@@ -496,5 +496,8 @@
     "UI_AA_opt_ignoreNpcs": "Ignore NPCs that are not hunting you",
     "UI_AA_opt_ignoreNpcs_tt": "Every NPC mod builds its characters as zombies, so the game counts your own companion as one. With this on, only real zombies and NPCs that have you as their target stop a job.",
     "UI_AA_opt_medSplint": "Splint a fracture",
-    "UI_AA_opt_medSplint_tt": "Uses a splint, or a plank and a ripped sheet, on a broken limb before dressing it - the same rules the Health window follows. Never the head or the torso."
+    "UI_AA_opt_medSplint_tt": "Uses a splint, or a plank and a ripped sheet, on a broken limb before dressing it - the same rules the Health window follows. Never the head or the torso.",
+    "UI_AA_opt_vhsBooksOnly": "Only tapes whose skill book I have read",
+    "UI_AA_opt_vhsBooksOnly_tt": "A tape’s XP is multiplied by the skill book’s bonus, and its lines are spent whether or not you had read the book. With this on, a tape is only watched while that skill’s book bonus is active. Skills with no book in the game are always watched.",
+    "UI_AA_vhs_nobook": "No tape within reach matches a skill book you have read."
 }

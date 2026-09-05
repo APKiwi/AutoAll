@@ -479,5 +479,8 @@
     "UI_AA_opt_ignoreNpcs": "Ignorar NPCs que nao estao te cacando",
     "UI_AA_opt_ignoreNpcs_tt": "Todo mod de NPC cria seus personagens como zumbis, entao o jogo conta o seu proprio companheiro como um. Com isso ligado, so zumbis de verdade e NPCs que tem voce como alvo interrompem um trabalho.",
     "UI_AA_opt_medSplint": "Colocar tala numa fratura",
-    "UI_AA_opt_medSplint_tt": "Usa uma tala, ou uma tabua e uma tira de lencol, num membro quebrado antes de enfaixar - as mesmas regras da janela de Saude. Nunca na cabeca nem no torso."
+    "UI_AA_opt_medSplint_tt": "Usa uma tala, ou uma tabua e uma tira de lencol, num membro quebrado antes de enfaixar - as mesmas regras da janela de Saude. Nunca na cabeca nem no torso.",
+    "UI_AA_opt_vhsBooksOnly": "So fitas cujo livro de pericia eu ja li",
+    "UI_AA_opt_vhsBooksOnly_tt": "O XP de uma fita e multiplicado pelo bonus do livro de pericia, e as falas dela sao gastas tendo lido o livro ou nao. Com isso ligado, uma fita so e assistida enquanto o bonus daquele livro estiver ativo. Pericias que nao tem livro no jogo sao sempre assistidas.",
+    "UI_AA_vhs_nobook": "Nenhuma fita ao alcance corresponde a um livro que voce leu."
 }
