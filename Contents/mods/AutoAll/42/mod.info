@@ -1,11 +1,6 @@
-name=[B42.20] Auto All (Fixed) - Cook, Read, Clean, Sterilize, Rip, Tailoring, Mechanics, Reload & Dismantle
-id=AutoAllFixed
-incompatible=AutoAll
-description=Fork of Auto All by Robson Foster. All credit for the mod is theirs. It started as multiplayer fixes, all of which went upstream with credit, and has since gone its own way: every module audited with the findings fixed, and features on top. Upstream's own patches are read and taken as they land.
-description=Original: https://steamcommunity.com/sharedfiles/filedetails/?id=3777237134
-description=Do not run this and the original at the same time. The mod list will stop you: this declares the original as incompatible.
-description=Why it still exists: fixes ship here the day they are found, then go upstream. If you are not on a server that runs this, use the original.
-description=Nine quality of life automations in one client side mod for Build 42.20.
+name=[B42.20] Auto All - Cook, Medicine, Read, Clean, Rip, Tailoring, Mechanics, Exercise, Reload, Open & Dismantle
+id=AutoAll
+description=Fourteen quality of life automations in one client side mod for Build 42.20.
 description=Auto Cook: right click a pot, bowl or pan and let the character fill the meal with the best ingredients on its own, spreading the food types so the dish does not make you unhappy. The Auto Cook... entry opens a window where you pick the dish, set how much of each ingredient goes in, and say whether the meal is for calories, for hunger, for balance or for losing weight.
 description=Auto Read: right click any book and the character reads every skill book and recipe magazine within reach, skipping the ones above or below its level, and puts each one back.
 description=Auto Clean: one option on any sink, toilet, bath, rain collector, barrel or well washes you, your clothes, your gear and your dirty bandages in one go, with or without cleaning products, then wrings the clothes out and puts them back on.
