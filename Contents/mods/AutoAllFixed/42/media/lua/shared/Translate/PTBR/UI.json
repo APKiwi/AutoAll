@@ -482,5 +482,9 @@
     "UI_AA_opt_medSplint_tt": "Usa uma tala, ou uma tabua e uma tira de lencol, num membro quebrado antes de enfaixar - as mesmas regras da janela de Saude. Nunca na cabeca nem no torso.",
     "UI_AA_opt_vhsBooksOnly": "So fitas cujo livro de pericia eu ja li",
     "UI_AA_opt_vhsBooksOnly_tt": "O XP de uma fita e multiplicado pelo bonus do livro de pericia, e as falas dela sao gastas tendo lido o livro ou nao. Com isso ligado, uma fita so e assistida enquanto o bonus daquele livro estiver ativo. Pericias que nao tem livro no jogo sao sempre assistidas.",
-    "UI_AA_vhs_nobook": "Nenhuma fita ao alcance corresponde a um livro que voce leu."
+    "UI_AA_vhs_nobook": "Nenhuma fita ao alcance corresponde a um livro que voce leu.",
+    "UI_MM_opt_titleRead": "Leitura",
+    "UI_MM_opt_autoRead": "Ler enquanto descansa",
+    "UI_MM_opt_autoRead_tt": "Entre as series o personagem le um livro util do proprio inventario e larga ele assim que o folego volta. Usa o mesmo criterio do Auto Ler para decidir o que vale a pena.",
+    "UI_MM_reading": "Lendo %1."
 }

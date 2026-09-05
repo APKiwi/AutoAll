@@ -36,6 +36,12 @@ MM.defaults = {
 
     -- food
     autoEat       = false,  -- eat from the inventory while resting
+
+    -- reading
+    -- Off by default, same reason autoEat above ships off: it changes
+    -- what the character does between sets, and nobody should have that
+    -- change under them on an update.
+    autoRead      = false,  -- read a useful book from the inventory while resting
     eatAt         = 2,      -- hunger moodle level that triggers a meal (1-4)
 
     -- items lying around
@@ -129,6 +135,9 @@ local function createModOptions()
     options:addTitle("UI_MM_opt_titleFood")
     options:addTickBox("autoEat", "UI_MM_opt_autoEat", d.autoEat, "UI_MM_opt_autoEat_tt")
     options:addSlider("eatAt", "UI_MM_opt_eatAt", 1, 4, 1, d.eatAt, "UI_MM_opt_eatAt_tt")
+
+    options:addTitle("UI_MM_opt_titleRead")
+    options:addTickBox("autoRead", "UI_MM_opt_autoRead", d.autoRead, "UI_MM_opt_autoRead_tt")
 
     options:addTitle("UI_MM_opt_titleItems")
     options:addTickBox("useNearby", "UI_MM_opt_useNearby", d.useNearby, "UI_MM_opt_useNearby_tt")

@@ -427,6 +427,7 @@ function MM.stop(player, reason, bad)
     MM.releaseSpeed(state)
     MM.stopFitnessAction(player)
     MM.stopRestAction(player)
+    if type(MM.stopRestRead) == "function" then MM.stopRestRead(state) end
     -- Hands Auto All's slot back. Its onStop returns the borrowed items, so
     -- the call below only does anything when there is no Auto All to hand
     -- the slot back to.
@@ -1107,6 +1108,17 @@ function MM.think(state)
     end
 
     if state.phase == "resting" then
+        -- The book goes down the moment the rest has anything else to
+        -- do. This has to sit above the "if action ~= nil then return"
+        -- below, because a read IS that action - the loop would
+        -- otherwise wait for the last page and the rest would end on
+        -- the book instead of on the endurance, which is the opposite
+        -- of what was asked for.
+        if state.reading and type(MM.restReadShouldStop) == "function"
+                and MM.restReadShouldStop(state) then
+            if MM.stopRestRead(state) then return end
+        end
+
         if MM.returnBorrowed(state) then return end
         if MM.tryTreatPain(state) then return end
         if MM.tryEat(state) then return end
@@ -1132,6 +1144,9 @@ function MM.think(state)
         if endurance < resumeAt or MM.isTooTired(player) then
             MM.reason(state, getText("UI_MM_wait_endurance"))
             MM.sitDownToRest(state)
+            -- Seated, queue empty, still tired: the one moment a book
+            -- can be opened without fighting anything.
+            if type(MM.tryRestRead) == "function" then MM.tryRestRead(state) end
             return
         end
 

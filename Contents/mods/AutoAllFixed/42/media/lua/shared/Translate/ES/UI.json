@@ -482,5 +482,9 @@
     "UI_AA_opt_medSplint_tt": "Usa una tablilla, o una tabla y una sabana rasgada, en un miembro roto antes de vendarlo - las mismas reglas de la ventana de Salud. Nunca la cabeza ni el torso.",
     "UI_AA_opt_vhsBooksOnly": "Solo cintas cuyo manual ya he leido",
     "UI_AA_opt_vhsBooksOnly_tt": "El XP de una cinta se multiplica por el bono del manual, y sus lineas se gastan hayas leido el libro o no. Con esto activado, una cinta solo se ve mientras el bono de ese manual este activo. Las habilidades sin manual en el juego siempre se ven.",
-    "UI_AA_vhs_nobook": "Ninguna cinta al alcance corresponde a un manual que hayas leido."
+    "UI_AA_vhs_nobook": "Ninguna cinta al alcance corresponde a un manual que hayas leido.",
+    "UI_MM_opt_titleRead": "Lectura",
+    "UI_MM_opt_autoRead": "Leer mientras descansa",
+    "UI_MM_opt_autoRead_tt": "Entre series el personaje lee un libro util de su propio inventario y lo deja en cuanto recupera el aliento. Usa el mismo criterio de Auto Leer.",
+    "UI_MM_reading": "Leyendo %1."
 }

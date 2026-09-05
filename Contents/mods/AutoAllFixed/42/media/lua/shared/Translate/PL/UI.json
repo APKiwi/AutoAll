@@ -482,5 +482,9 @@
     "UI_AA_opt_medSplint_tt": "Uzywa szyny, albo deski i podartego przescieradla, na zlamanej konczynie przed opatrzeniem - te same zasady co okno zdrowia. Nigdy na glowe ani tulow.",
     "UI_AA_opt_vhsBooksOnly": "Tylko kasety, ktorych podrecznik przeczytalem",
     "UI_AA_opt_vhsBooksOnly_tt": "Doswiadczenie z kasety jest mnozone przez bonus z podrecznika, a jej kwestie zuzywaja sie tak czy inaczej. Z ta opcja kaseta jest ogladana tylko wtedy, gdy bonus tego podrecznika dziala. Umiejetnosci bez podrecznika sa ogladane zawsze.",
-    "UI_AA_vhs_nobook": "Zadna kaseta w zasiegu nie pasuje do przeczytanego podrecznika."
+    "UI_AA_vhs_nobook": "Zadna kaseta w zasiegu nie pasuje do przeczytanego podrecznika.",
+    "UI_MM_opt_titleRead": "Czytanie",
+    "UI_MM_opt_autoRead": "Czytaj podczas odpoczynku",
+    "UI_MM_opt_autoRead_tt": "Miedzy seriami postac czyta przydatna ksiazke z wlasnego ekwipunku i odklada ja, gdy tylko wroci kondycja. Korzysta z tych samych zasad co Auto Czytanie.",
+    "UI_MM_reading": "Czytam %1."
 }

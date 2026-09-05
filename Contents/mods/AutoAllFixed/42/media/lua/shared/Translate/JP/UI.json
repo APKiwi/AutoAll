@@ -154,5 +154,9 @@
     "UI_AA_opt_medSplint_tt": "Uses a splint, or a plank and a ripped sheet, on a broken limb before dressing it - the same rules the Health window follows. Never the head or the torso.",
     "UI_AA_opt_vhsBooksOnly": "Only tapes whose skill book I have read",
     "UI_AA_opt_vhsBooksOnly_tt": "A tape’s XP is multiplied by the skill book’s bonus, and its lines are spent whether or not you had read the book. With this on, a tape is only watched while that skill’s book bonus is active. Skills with no book in the game are always watched.",
-    "UI_AA_vhs_nobook": "No tape within reach matches a skill book you have read."
+    "UI_AA_vhs_nobook": "No tape within reach matches a skill book you have read.",
+    "UI_MM_opt_titleRead": "Reading",
+    "UI_MM_opt_autoRead": "Read while resting",
+    "UI_MM_opt_autoRead_tt": "Between sets the character reads a useful book from their own inventory and puts it down the moment endurance is back. Uses Auto Read’s own judgement of what is worth reading.",
+    "UI_MM_reading": "Reading %1."
 }

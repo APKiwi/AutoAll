@@ -482,5 +482,9 @@
     "UI_AA_opt_medSplint_tt": "Pose une attelle, ou une planche et un drap dechire, sur un membre casse avant de le bander - les memes regles que la fenetre de Sante. Jamais la tete ni le torse.",
     "UI_AA_opt_vhsBooksOnly": "Seulement les cassettes dont j’ai lu le manuel",
     "UI_AA_opt_vhsBooksOnly_tt": "L’XP d’une cassette est multipliee par le bonus du manuel, et ses lignes sont depensees que vous l’ayez lu ou non. Avec ceci, une cassette n’est regardee que tant que le bonus de ce manuel est actif. Les competences sans manuel sont toujours regardees.",
-    "UI_AA_vhs_nobook": "Aucune cassette a portee ne correspond a un manuel que vous avez lu."
+    "UI_AA_vhs_nobook": "Aucune cassette a portee ne correspond a un manuel que vous avez lu.",
+    "UI_MM_opt_titleRead": "Lecture",
+    "UI_MM_opt_autoRead": "Lire pendant le repos",
+    "UI_MM_opt_autoRead_tt": "Entre les series le personnage lit un livre utile de son propre inventaire et le repose des que l’endurance revient. Utilise le jugement d’Auto Lecture.",
+    "UI_MM_reading": "Lecture de %1."
 }
