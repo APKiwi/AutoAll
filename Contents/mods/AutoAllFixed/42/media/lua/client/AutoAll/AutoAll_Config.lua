@@ -148,6 +148,11 @@ AA.defaults = {
     -- becoming an infected one, and it is the step people forget. Anyone
     -- rationing alcohol turns it off.
     medDisinfect       = true,
+    -- On by default. A fracture is unambiguously something the player
+    -- wants dealt with, the splint is what deals with it, and the vanilla
+    -- rules about which parts can be splinted are followed exactly.
+    -- Turn it off to keep your planks.
+    medSplint          = true,
 
     -- mechanics
     -- The game's own success chance, as a percentage. Parts below this are
@@ -449,6 +454,7 @@ local function createModOptions()
 
     options:addTitle("UI_AA_opt_titleMed")
     options:addTickBox("medDisinfect", "UI_AA_opt_medDisinfect", d.medDisinfect, "UI_AA_opt_medDisinfect_tt")
+    options:addTickBox("medSplint", "UI_AA_opt_medSplint", d.medSplint, "UI_AA_opt_medSplint_tt")
 
     options:addTitle("UI_AA_opt_titleSafety")
     options:addTickBox("stopOnMove", "UI_AA_opt_stopOnMove", d.stopOnMove, "UI_AA_opt_stopOnMove_tt")

@@ -477,5 +477,7 @@
     "UI_AA_opt_dismantleSkipFavorite_tt": "Los objetos marcados como favoritos se dejan en paz. Con esto desactivado, un solo reloj favorito detiene todo el lote en vez de saltarse.",
     "UI_AA_dismantle_blocked": "Nada de esto se puede desmontar ahora. Los objetos puestos, rotos o ya usados no cuentan.",
     "UI_AA_opt_ignoreNpcs": "Ignorar a los NPC que no te persiguen",
-    "UI_AA_opt_ignoreNpcs_tt": "Todos los mods de NPC crean sus personajes como zombis, asi que el juego cuenta a tu propio companero como uno. Con esto activado, solo los zombis de verdad y los NPC que te tienen como objetivo detienen un trabajo."
+    "UI_AA_opt_ignoreNpcs_tt": "Todos los mods de NPC crean sus personajes como zombis, asi que el juego cuenta a tu propio companero como uno. Con esto activado, solo los zombis de verdad y los NPC que te tienen como objetivo detienen un trabajo.",
+    "UI_AA_opt_medSplint": "Entablillar una fractura",
+    "UI_AA_opt_medSplint_tt": "Usa una tablilla, o una tabla y una sabana rasgada, en un miembro roto antes de vendarlo - las mismas reglas de la ventana de Salud. Nunca la cabeza ni el torso."
 }

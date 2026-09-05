@@ -477,5 +477,7 @@
     "UI_AA_opt_dismantleSkipFavorite_tt": "Przedmioty oznaczone jako ulubione zostaja nietkniete. Bez tego jeden ulubiony zegarek zatrzymuje cala partie, zamiast zostac pominiety.",
     "UI_AA_dismantle_blocked": "Nie ma tu teraz nic do rozebrania. Zalozone, zepsute lub juz uzyte przedmioty sie nie licza.",
     "UI_AA_opt_ignoreNpcs": "Ignoruj NPC, ktorzy na ciebie nie poluja",
-    "UI_AA_opt_ignoreNpcs_tt": "Kazdy mod z NPC tworzy swoje postacie jako zombie, wiec gra liczy twojego wlasnego towarzysza jako jednego z nich. Z ta opcja prace przerywaja tylko prawdziwe zombie i NPC, ktorzy maja ciebie za cel."
+    "UI_AA_opt_ignoreNpcs_tt": "Kazdy mod z NPC tworzy swoje postacie jako zombie, wiec gra liczy twojego wlasnego towarzysza jako jednego z nich. Z ta opcja prace przerywaja tylko prawdziwe zombie i NPC, ktorzy maja ciebie za cel.",
+    "UI_AA_opt_medSplint": "Zakladaj szyne na zlamanie",
+    "UI_AA_opt_medSplint_tt": "Uzywa szyny, albo deski i podartego przescieradla, na zlamanej konczynie przed opatrzeniem - te same zasady co okno zdrowia. Nigdy na glowe ani tulow."
 }

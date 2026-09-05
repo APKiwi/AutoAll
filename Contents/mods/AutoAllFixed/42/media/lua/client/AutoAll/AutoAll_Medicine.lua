@@ -57,11 +57,23 @@
     So isAlcoholic() is the difference between a dressing that protects
     against infection and one that does not.
 
-    Splints and stitches are deliberately NOT done. A stitch is a
-    judgement call about a deep wound and needs needle and thread; a
-    splint immobilises a limb for days. Neither is something to do to a
-    character without being asked, and neither is repetitive enough to
-    be worth automating.
+    Stitches are deliberately NOT done. A stitch is a judgement call
+    about a deep wound, it needs a needle and thread, and getting it
+    wrong is worse than leaving it.
+
+    Splints WERE left out for the same reason, and that was wrong.
+
+    > *Barbiehunter:* "The splint is not being used when you have a
+    > fracture (the splint heals it 10x faster, according to the wiki)."
+
+    The argument against was "a splint immobilises a limb for days".
+    That is not a side effect to weigh against the benefit, it is what
+    treating a fracture IS, and the fracture is already there. A player
+    who breaks an arm and opens the Health window wants it splinted.
+    There is nothing to judge and nothing to get wrong.
+
+    So it is done, under its own option, and canSplint below is
+    HSplint's own gate verbatim. From upstream Auto All, 2026-09-06.
 ]]
 
 require "AutoAll/AutoAll_Core"
@@ -214,6 +226,67 @@ local function isDirtyBandage(item)
         return t ~= nil and string.match(t, "Dirty") ~= nil
     end)
     return ok and dirty == true
+end
+
+--- HSplint:checkItem, verbatim. A ready-made Splint is worth more than
+--- the two-item version, so it wins the ranking; the plank and the
+--- ripped sheet are found separately below.
+local function splintScore(item)
+    local ok, score = pcall(function()
+        if item:getType() == "Splint" then return 100 end
+        return nil
+    end)
+    if ok then return score end
+    return nil
+end
+
+local PLANKS = {
+    Plank = true, TreeBranch = true, TreeBranch2 = true,
+    WoodenStick = true, WoodenStick2 = true,
+}
+
+local function plankScore(item)
+    local ok, score = pcall(function()
+        if PLANKS[item:getType()] then return 1 end
+        return nil
+    end)
+    if ok then return score end
+    return nil
+end
+
+local function sheetScore(item)
+    local ok, score = pcall(function()
+        if item:getType() == "RippedSheets" then return 1 end
+        return nil
+    end)
+    if ok then return score end
+    return nil
+end
+
+--- HSplint's own gate, verbatim: the three parts vanilla refuses from
+--- addToMenu, then its injured/stitched/already-splinted test and the
+--- fracture itself.
+---
+--- No part of this is dead. BodyPart.HasInjury() ORs getFractureTime()
+--- > 0 in with the bites and the cuts, so a fracture with nothing else
+--- wrong answers it and reaches the survey on its own. A fractured limb
+--- that is already bandaged does not, which is vanilla's behaviour too:
+--- BaseHandler:isInjured() ends in `and not bandaged()`, so the Health
+--- window hides its own Splint option there as well.
+local function canSplint(part)
+    local ok, allowed = pcall(function()
+        local kind = part:getType()
+        if kind == BodyPartType.Head
+                or kind == BodyPartType.Torso_Upper
+                or kind == BodyPartType.Torso_Lower then
+            return false
+        end
+        if not part:HasInjury() or part:stitched() or part:getSplintFactor() > 0 then
+            return false
+        end
+        return part:getFractureTime() > 0
+    end)
+    return ok and allowed == true
 end
 
 --- HApplyBandage:checkItem is getBandagePower() > 0. The ranking on top
@@ -384,12 +457,18 @@ local function planNextStep(task)
     local supplies = reachableItems(player)
     local bandage  = bestOf(supplies, bandageScore)
 
-    local function plan(kind, entry, item)
+    -- item2 exists for the splint alone: vanilla's two-item version
+    -- needs a plank AND a ripped sheet in the inventory together, and
+    -- every other step here takes one item or none.
+    local function plan(kind, entry, item, item2)
         if item then
             ISInventoryPaneContextMenu.transferIfNeeded(player, item)
         end
+        if item2 then
+            ISInventoryPaneContextMenu.transferIfNeeded(player, item2)
+        end
         return { kind = kind, part = entry.part, index = entry.index,
-                 item = item, tries = 0 }
+                 item = item, item2 = item2, tries = 0 }
     end
 
     for _, entry in ipairs(work) do
@@ -435,6 +514,31 @@ local function planNextStep(task)
         if blocked then
             block(task, entry, "tool")
         else
+            -- Splint before dressing, and this order is not a preference.
+            -- BaseHandler:isInjured() is
+            --
+            --     (HasInjury() or stitched() or getSplintFactor() > 0)
+            --     and not bandaged()
+            --
+            -- so a bandage hides the splint option exactly the way it
+            -- hides every other one.
+            if AA.opt("medSplint") and canSplint(part) then
+                local splint = bestOf(supplies, splintScore)
+                if splint then
+                    return plan("splint", entry, splint)
+                end
+
+                -- The two-item version. Vanilla takes any of a plank, a
+                -- branch or a stick, together with a ripped sheet.
+                local plank = bestOf(supplies, plankScore)
+                local sheet = bestOf(supplies, sheetScore)
+                if plank and sheet then
+                    return plan("splint", entry, plank, sheet)
+                end
+                -- Nothing to splint with is not a reason to leave the
+                -- wound open, so this falls through to the dressing.
+            end
+
             -- Disinfect once per part, and only while the wound is still
             -- open. Tracked on the task rather than read off the body,
             -- because there is no "this wound is disinfected" flag to read -
@@ -481,7 +585,8 @@ local function runPlan(task)
     local patient = player
     local part    = plan.part
 
-    if plan.item and not inInventory(player, plan.item) then
+    if (plan.item and not inInventory(player, plan.item))
+            or (plan.item2 and not inInventory(player, plan.item2)) then
         -- On a client the transfer settles through the server and can
         -- still be in flight after its action has drained.
         plan.tries = plan.tries + 1
@@ -513,6 +618,11 @@ local function runPlan(task)
             item  = plan.item,
             dose  = disinfectantScore(plan.item),
         }
+    elseif plan.kind == "splint" then
+        -- HSplint:perform's own argument order: the ripped sheet first,
+        -- then the plank. A ready-made Splint goes in the plank slot
+        -- with no sheet at all, which is what vanilla does too.
+        ISTimedActionQueue.add(ISSplint:new(doctor, patient, plan.item2, plan.item, part, true))
     elseif plan.kind == "bandage" then
         ISTimedActionQueue.add(ISApplyBandage:new(doctor, patient, plan.item, part, true))
     end
@@ -577,6 +687,9 @@ local function bodyState(player)
                 p:isNeedBurnWash() and 1 or 0,
                 p:bandaged() and 1 or 0,
                 p:bleeding() and 1 or 0,
+                -- Or a successful splint would look like no progress and
+                -- the job would give up after its no-progress rounds.
+                (p:getSplintFactor() or 0) > 0 and 1 or 0,
             }, "")
         end
     end)

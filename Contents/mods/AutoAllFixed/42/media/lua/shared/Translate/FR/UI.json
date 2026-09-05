@@ -477,5 +477,7 @@
     "UI_AA_opt_dismantleSkipFavorite_tt": "Les objets marques comme favoris sont laisses tranquilles. Sans cela, une seule montre favorite arrete tout le lot au lieu d etre ignoree.",
     "UI_AA_dismantle_blocked": "Rien ici ne peut etre demonte pour le moment. Les objets portes, casses ou deja utilises ne comptent pas.",
     "UI_AA_opt_ignoreNpcs": "Ignorer les PNJ qui ne vous chassent pas",
-    "UI_AA_opt_ignoreNpcs_tt": "Tous les mods de PNJ construisent leurs personnages comme des zombies, donc le jeu compte votre propre compagnon comme tel. Avec ceci, seuls les vrais zombies et les PNJ qui vous ont pour cible arretent une tache."
+    "UI_AA_opt_ignoreNpcs_tt": "Tous les mods de PNJ construisent leurs personnages comme des zombies, donc le jeu compte votre propre compagnon comme tel. Avec ceci, seuls les vrais zombies et les PNJ qui vous ont pour cible arretent une tache.",
+    "UI_AA_opt_medSplint": "Attelle sur une fracture",
+    "UI_AA_opt_medSplint_tt": "Pose une attelle, ou une planche et un drap dechire, sur un membre casse avant de le bander - les memes regles que la fenetre de Sante. Jamais la tete ni le torse."
 }

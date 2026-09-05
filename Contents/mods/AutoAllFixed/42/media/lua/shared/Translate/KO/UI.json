@@ -149,5 +149,7 @@
     "UI_AA_opt_dismantleSkipFavorite_tt": "Items flagged as favourite are left alone. With this off, one favourited watch stops the whole batch rather than being skipped.",
     "UI_AA_dismantle_blocked": "Nothing here can be taken apart right now. Worn, broken or already-used items do not count.",
     "UI_AA_opt_ignoreNpcs": "Ignore NPCs that are not hunting you",
-    "UI_AA_opt_ignoreNpcs_tt": "Every NPC mod builds its characters as zombies, so the game counts your own companion as one. With this on, only real zombies and NPCs that have you as their target stop a job."
+    "UI_AA_opt_ignoreNpcs_tt": "Every NPC mod builds its characters as zombies, so the game counts your own companion as one. With this on, only real zombies and NPCs that have you as their target stop a job.",
+    "UI_AA_opt_medSplint": "Splint a fracture",
+    "UI_AA_opt_medSplint_tt": "Uses a splint, or a plank and a ripped sheet, on a broken limb before dressing it - the same rules the Health window follows. Never the head or the torso."
 }

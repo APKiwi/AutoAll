@@ -477,5 +477,7 @@
     "UI_AA_opt_dismantleSkipFavorite_tt": "Itens marcados como favoritos ficam de fora. Com isso desligado, um unico relogio favoritado para o lote inteiro em vez de ser pulado.",
     "UI_AA_dismantle_blocked": "Nada aqui pode ser desmontado agora. Itens vestidos, quebrados ou ja usados nao contam.",
     "UI_AA_opt_ignoreNpcs": "Ignorar NPCs que nao estao te cacando",
-    "UI_AA_opt_ignoreNpcs_tt": "Todo mod de NPC cria seus personagens como zumbis, entao o jogo conta o seu proprio companheiro como um. Com isso ligado, so zumbis de verdade e NPCs que tem voce como alvo interrompem um trabalho."
+    "UI_AA_opt_ignoreNpcs_tt": "Todo mod de NPC cria seus personagens como zumbis, entao o jogo conta o seu proprio companheiro como um. Com isso ligado, so zumbis de verdade e NPCs que tem voce como alvo interrompem um trabalho.",
+    "UI_AA_opt_medSplint": "Colocar tala numa fratura",
+    "UI_AA_opt_medSplint_tt": "Usa uma tala, ou uma tabua e uma tira de lencol, num membro quebrado antes de enfaixar - as mesmas regras da janela de Saude. Nunca na cabeca nem no torso."
 }

@@ -477,5 +477,7 @@
     "UI_AA_opt_dismantleSkipFavorite_tt": "Als Favorit markierte Gegenstaende bleiben unangetastet. Ohne dies stoppt eine einzige favorisierte Uhr den ganzen Stapel, statt uebersprungen zu werden.",
     "UI_AA_dismantle_blocked": "Hier kann gerade nichts zerlegt werden. Getragene, kaputte oder bereits benutzte Gegenstaende zaehlen nicht.",
     "UI_AA_opt_ignoreNpcs": "NPCs ignorieren, die dich nicht jagen",
-    "UI_AA_opt_ignoreNpcs_tt": "Jede NPC-Mod baut ihre Figuren als Zombies, also zaehlt das Spiel deinen eigenen Begleiter als einen. Damit stoppen nur echte Zombies und NPCs, die dich als Ziel haben, eine Aufgabe."
+    "UI_AA_opt_ignoreNpcs_tt": "Jede NPC-Mod baut ihre Figuren als Zombies, also zaehlt das Spiel deinen eigenen Begleiter als einen. Damit stoppen nur echte Zombies und NPCs, die dich als Ziel haben, eine Aufgabe.",
+    "UI_AA_opt_medSplint": "Bruch schienen",
+    "UI_AA_opt_medSplint_tt": "Legt eine Schiene an, oder ein Brett und ein zerrissenes Laken, bevor ein gebrochenes Glied verbunden wird - nach denselben Regeln wie das Gesundheitsfenster. Nie am Kopf oder Rumpf."
 }
