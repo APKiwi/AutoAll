@@ -223,7 +223,30 @@ local function codeTeaches(player, entry, gateBooks)
 
     if code == "RCP" then
         if rest == "" then return false end
-        local ok, known = pcall(function() return player:isRecipeKnown(rest) end)
+
+        -- isRecipeActuallyKnown, not isRecipeKnown, and the difference is
+        -- the whole bug.
+        --
+        -- > *Barbiehunter:* "Auto VHS doesn't check if you can learn a
+        -- > Recipe of it as it looks like"
+        --
+        -- Read from the jar. Both are the same method with one flag:
+        --
+        --     isRecipeKnown(s)         -> isRecipeKnown(s, false)
+        --     isRecipeActuallyKnown(s) -> isRecipeKnown(s, true)
+        --
+        -- and the flag decides whether the sandbox shortcut applies. With
+        -- false, a name that does not resolve to a legacy Recipe answers
+        -- TRUE whenever SandboxOptions.seeNotLearntRecipe is on, so the
+        -- lenient call reports recipes as known that the character has
+        -- never learnt. B42 crafting is CraftRecipe rather than the old
+        -- Recipe, so that miss is not rare.
+        --
+        -- The strict one is also exactly what the learning path asks:
+        -- learnRecipe(s, true) opens with isRecipeKnown(s, true) and only
+        -- adds to knownRecipes when that is false. Asking the same
+        -- question means the mod's answer and the tape's effect agree.
+        local ok, known = pcall(function() return player:isRecipeActuallyKnown(rest) end)
         -- A recipe we cannot ask about counts as unknown: the worst case
         -- is one tape watched for nothing, and the alternative is silently
         -- skipping tapes that do teach.
