@@ -5,6 +5,6 @@ set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
 DST="$HOME/Zomboid/Workshop/AutoAll"
 rsync -a --delete \
-    --exclude .git --exclude '*.md' --exclude deploy.sh --exclude .gitignore --exclude .DS_Store \
+    --exclude .git --exclude tests --exclude '*.md' --exclude deploy.sh --exclude .gitignore --exclude .DS_Store \
     "$SRC/" "$DST/"
 echo "deployed $(git -C "$SRC" rev-parse --short HEAD) -> $DST"
