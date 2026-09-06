@@ -151,6 +151,30 @@ local function setRealSpeed(index)
     end)
 end
 
+--- Restores any real game-speed slot captured immediately before vanilla's
+--- fitness action forces it to 1. Pause is special: like the Pause hotkey,
+--- it changes only the slot and preserves the multiplier used on unpause.
+local function restoreRealSpeed(slot)
+    if slot == 0 then
+        pcall(function()
+            local controls = UIManager.getSpeedControls()
+            if controls then
+                controls:SetCurrentGameSpeed(0)
+            else
+                setGameSpeed(0)
+            end
+        end)
+        return
+    end
+
+    for index, candidate in ipairs(SPEEDS) do
+        if candidate == slot then
+            setRealSpeed(index)
+            return
+        end
+    end
+end
+
 -- ISTimedActionQueue.lua resets the game speed to 1 whenever the action
 -- queue goes idle and the vanilla "reset game speed when a timed action
 -- ends" option is on, which is between every single set. Re-asserting the
@@ -164,6 +188,53 @@ local function releaseVanillaReset()
         ISTimedActionQueue.shouldResetGameSpeed = false
     end
 end
+
+--- Vanilla ISFitnessAction.stop and perform both force 1x directly. Guard
+--- those exact calls while a Muscle Manager session owns or follows the
+--- current speed. Capturing before vanilla runs distinguishes its reset from
+--- a manual 1x, pause, or alternate fast-forward selection.
+local function installFitnessSpeedGuard()
+    if type(ISFitnessAction) ~= "table" then return end
+    if MM.fitnessSpeedGuardClass == ISFitnessAction then return end
+    if type(ISFitnessAction.stop) ~= "function"
+            or type(ISFitnessAction.perform) ~= "function" then return end
+
+    local function wrap(method)
+        local original = ISFitnessAction[method]
+
+        ISFitnessAction[method] = function(action, ...)
+            local state, slot, playerNum
+            local character = action and action.character
+            if character then
+                local ok, resolvedPlayerNum = pcall(function() return character:getPlayerNum() end)
+                if ok then
+                    playerNum = resolvedPlayerNum
+                    state = MM.states[playerNum]
+                    if state and state.active and (state.speedHeld or state.speedFollow) then
+                        slot = currentSpeedSlot()
+                    end
+                end
+            end
+
+            local result = original(action, ...)
+
+            if state and slot ~= nil and state.active
+                    and MM.states[playerNum] == state
+                    and (state.speedHeld or state.speedFollow) then
+                restoreRealSpeed(slot)
+                releaseVanillaReset()
+            end
+            return result
+        end
+    end
+
+    wrap("stop")
+    wrap("perform")
+    MM.fitnessSpeedGuardClass = ISFitnessAction
+end
+
+installFitnessSpeedGuard()
+Events.OnGameStart.Add(installFitnessSpeedGuard)
 
 --- Takes the game speed up once, then leaves the player alone.
 ---
@@ -966,7 +1037,7 @@ local function stopOptionOn(key)
     return false
 end
 
---- A fracture, an untreated deep wound or active bleeding: reasons to stop
+--- An untreated splintable fracture, deep wound or active bleeding: reasons to stop
 --- that overall body health never shows.
 ---
 --- The health check below is a per-think delta, and these hurt far too
@@ -980,9 +1051,17 @@ local function injuredBodyPart(player)
         for i = 0, parts:size() - 1 do
             local part = parts:get(i)
             if part then
-                if part:getFractureTime() > 0 then return true end
-                if part:isDeepWounded() then return true end
-                if part:getBleedingTime() > 0 then return true end
+                local bandaged = part:bandaged()
+                if part:isDeepWounded() and not bandaged then return true end
+                if part:getBleedingTime() > 0 and not bandaged then return true end
+
+                if part:getFractureTime() > 0 and part:getSplintFactor() <= 0 then
+                    local partType = part:getType()
+                    local splintable = partType ~= BodyPartType.Head
+                            and partType ~= BodyPartType.Torso_Upper
+                            and partType ~= BodyPartType.Torso_Lower
+                    if splintable then return true end
+                end
             end
         end
         return false
@@ -1015,7 +1094,7 @@ function MM.checkSafety(state)
         return getText("UI_MM_stop_health")
     end
 
-    if injuredBodyPart(player) then
+    if stopOptionOn("stopInjury") and injuredBodyPart(player) then
         return getText("UI_MM_stop_injury")
     end
 

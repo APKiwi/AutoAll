@@ -25,12 +25,20 @@ New options
 - Auto VHS can be told to watch only tapes whose skill book you have read. A
   tape's XP is multiplied by the book's bonus and its lines are spent either
   way, so watching one early throws most of it away. Off by default. Skills
-  with no book in the game are always watched.
+  with no book in the game are always watched. The required bonus can now be
+  set from 1% to 100% of the current book's full multiplier, and defaults to
+  the full book.
 - Auto Exercise can read a book from your own bag between sets and put it
   down the moment endurance is back. Off by default. It uses Auto Read's
   judgement of what is worth reading, so it follows the switches you have
   already set. Resting on furniture keeps the vanilla rest action running and
   no book is opened during those rests.
+- Auto Exercise keeps its fast-forward setting after a set ends. The game's
+  fitness action forces 1x directly, which the mod had mistaken for the player
+  changing speed.
+- The injury safety stop can now be switched off. When it is on, splinted
+  fractures, bandaged wounds and fractures on body parts that cannot be
+  splinted no longer count as untreated.
 
 Also
 - The water source for Auto Cook is now confirmed with the game's own fill

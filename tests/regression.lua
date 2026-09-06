@@ -130,6 +130,8 @@ local function resetGlobals(options)
     Perks = {}
     SandboxVars = {}
     RWMMedia = nil
+    MuscleManager = nil
+    PZAPI = nil
 
     _G.require = function() return true end
     _G.instanceof = function(value, className)
@@ -298,11 +300,24 @@ local function tape(id, lines)
     return result
 end
 
-local function vhsFixture(items, cutoff, level, recipeActuallyKnown, booksOnly)
-    resetGlobals({ vhsBooksOnly = booksOnly == true, vhsNearby = false })
-    local perk = { getId = function() return "Mechanics" end }
-    Perks.Mechanics = perk
-    SkillBook.Mechanics = { perk = perk }
+local function vhsFixture(items, cutoff, level, recipeActuallyKnown, booksOnly, book)
+    book = book or {}
+    resetGlobals({
+        vhsBooksOnly = booksOnly == true,
+        vhsBookXpThreshold = book.threshold,
+        vhsNearby = false,
+    })
+    local perkName = book.perkName or "Mechanics"
+    local perk = { getId = function() return perkName end }
+    Perks[perkName] = perk
+    SkillBook[perkName] = {
+        perk = perk,
+        maxMultiplier1 = book.maxMultiplier1 or 3,
+        maxMultiplier2 = book.maxMultiplier2 or 5,
+        maxMultiplier3 = book.maxMultiplier3 or 8,
+        maxMultiplier4 = book.maxMultiplier4 or 12,
+        maxMultiplier5 = book.maxMultiplier5 or 16,
+    }
     SandboxVars.LevelForMediaXPCutoff = cutoff
     local mainInventory = inventory(items)
     for _, value in ipairs(items) do value.container = mainInventory end
@@ -311,7 +326,7 @@ local function vhsFixture(items, cutoff, level, recipeActuallyKnown, booksOnly)
         isKnownMediaLine = function() return false end,
         getPerkLevel = function() return level end,
         getXp = function()
-            return { getMultiplier = function() return 0 end }
+            return { getMultiplier = function() return book.multiplier or 0 end }
         end,
         isRecipeKnown = function(_, recipe, strict)
             if strict == true then return recipeActuallyKnown end
@@ -377,6 +392,365 @@ run("VHS preserves the unread skill book message", function()
 
     assertNotNil(textCall, "no unavailable message was requested")
     assertEqual(textCall.key, "UI_AA_vhs_nobook", "unavailable message")
+end)
+
+run("VHS book gate defaults to the relevant book's full multiplier", function()
+    local value = tape(13, { mediaLine("line-13", "MEC+1") })
+    local VHS, player = vhsFixture({ value }, 10, 1, true, true, {
+        multiplier = 2.7,
+    })
+    local found, blocked = VHS.collect(player)
+    assertEqual(#found, 0, "eligible tape count")
+    assertEqual(blocked, 1, "book-blocked tape count")
+end)
+
+run("VHS book gate stays off by default", function()
+    local value = tape(14, { mediaLine("line-14", "MEC+1") })
+    local VHS, player = vhsFixture({ value }, 10, 1, true, false, {
+        multiplier = 0,
+    })
+    local found, blocked = VHS.collect(player)
+    assertEqual(#found, 1, "eligible tape count")
+    assertEqual(blocked, 0, "book-blocked tape count")
+end)
+
+run("VHS book gate uses the book for the current level band", function()
+    local value = tape(15, { mediaLine("line-15", "MEC+1") })
+    local VHS, player = vhsFixture({ value }, 10, 2, true, true, {
+        multiplier = 3,
+    })
+    local found, blocked = VHS.collect(player)
+    assertEqual(#found, 0, "eligible tape count")
+    assertEqual(blocked, 1, "book-blocked tape count")
+end)
+
+run("VHS book gate accepts a configured partial multiplier threshold", function()
+    local value = tape(16, { mediaLine("line-16", "MEC+1") })
+    local VHS, player = vhsFixture({ value }, 10, 1, true, true, {
+        multiplier = 1.5,
+        threshold = 50,
+    })
+    local found, blocked = VHS.collect(player)
+    assertEqual(#found, 1, "eligible tape count")
+    assertEqual(blocked, 0, "book-blocked tape count")
+end)
+
+run("VHS book gate rejects a multiplier below the configured threshold", function()
+    local value = tape(17, { mediaLine("line-17", "MEC+1") })
+    local VHS, player = vhsFixture({ value }, 10, 1, true, true, {
+        multiplier = 1.5,
+        threshold = 60,
+    })
+    local found, blocked = VHS.collect(player)
+    assertEqual(#found, 0, "eligible tape count")
+    assertEqual(blocked, 1, "book-blocked tape count")
+end)
+
+run("VHS book gate uses the lower maximum for aiming books", function()
+    local value = tape(18, { mediaLine("line-18", "AIM+1") })
+    local VHS, player = vhsFixture({ value }, 10, 1, true, true, {
+        perkName = "Aiming",
+        multiplier = 1.5,
+        maxMultiplier1 = 1.5,
+        maxMultiplier2 = 2.5,
+        maxMultiplier3 = 4,
+        maxMultiplier4 = 6,
+        maxMultiplier5 = 8,
+    })
+    local found, blocked = VHS.collect(player)
+    assertEqual(#found, 1, "eligible tape count")
+    assertEqual(blocked, 0, "book-blocked tape count")
+end)
+
+run("VHS book gate follows every two-level book band", function()
+    local cases = {
+        { level = 0, multiplier = 3 },
+        { level = 2, multiplier = 5 },
+        { level = 4, multiplier = 8 },
+        { level = 6, multiplier = 12 },
+        { level = 8, multiplier = 16 },
+    }
+    for index, case in ipairs(cases) do
+        local value = tape(20 + index, { mediaLine("line-band-" .. index, "MEC+1") })
+        local VHS, player = vhsFixture({ value }, 10, case.level, true, true, {
+            multiplier = case.multiplier,
+        })
+        local found, blocked = VHS.collect(player)
+        assertEqual(#found, 1, "eligible tape count for level " .. case.level)
+        assertEqual(blocked, 0, "book-blocked tape count for level " .. case.level)
+    end
+end)
+
+run("VHS book gate still watches tapes for skills without books", function()
+    local value = tape(26, { mediaLine("line-no-book", "MEC+1") })
+    local VHS, player = vhsFixture({ value }, 10, 1, true, true, {
+        multiplier = 0,
+    })
+    SkillBook.Mechanics = nil
+    local found, blocked = VHS.collect(player)
+    assertEqual(#found, 1, "eligible tape count")
+    assertEqual(blocked, 0, "book-blocked tape count")
+end)
+
+run("VHS book gate still watches tapes that teach unknown recipes", function()
+    local value = tape(27, { mediaLine("line-recipe", "RCP=Generator") })
+    local VHS, player = vhsFixture({ value }, 10, 1, false, true, {
+        multiplier = 0,
+    })
+    local found, blocked = VHS.collect(player)
+    assertEqual(#found, 1, "eligible tape count")
+    assertEqual(blocked, 0, "book-blocked tape count")
+end)
+
+local function muscleFixture(part, optionOverrides)
+    resetGlobals()
+    local tickers = {}
+    Events.OnTick = { Add = function(callback) tickers[#tickers + 1] = callback end }
+    Events.OnPlayerUpdate = { Add = function() end }
+    Events.OnPlayerDeath = { Add = function() end }
+
+    local speedSlot = 1
+    local multiplier = 1
+    local actions = {}
+    local queue = { queue = actions }
+
+    isClient = function() return false end
+    isServer = function() return false end
+    getTimestampMs = function() return 0 end
+    getGameSpeed = function() return speedSlot end
+    setGameSpeed = function(value) speedSlot = value end
+    UIManager = {
+        getSpeedControls = function()
+            return {
+                getCurrentGameSpeed = function() return speedSlot end,
+                SetCurrentGameSpeed = function(_, value) speedSlot = value end,
+            }
+        end,
+    }
+    getGameTime = function()
+        return { setMultiplier = function(_, value) multiplier = value end }
+    end
+    ISFitnessAction = {
+        stop = function() setGameSpeed(1) end,
+        perform = function() setGameSpeed(1) end,
+    }
+    ISTimedActionQueue = {
+        shouldResetGameSpeed = false,
+        getTimedActionQueue = function() return queue end,
+    }
+    MoodleType = { HEAVY_LOAD = "heavy", ENDURANCE = "endurance", PAIN = "pain" }
+    BodyPartType = { Head = "head", Torso_Upper = "upper", Torso_Lower = "lower" }
+
+    AutoAll.enabled = function() return true end
+    AutoAll.opt = function() return false end
+
+    loadFeature("Contents/mods/AutoAll/42/media/lua/client/MuscleManager/MuscleManager_Config.lua")
+    loadFeature("Contents/mods/AutoAll/42/media/lua/client/MuscleManager/MuscleManager_Core.lua")
+
+    if optionOverrides then
+        local originalOpt = MuscleManager.opt
+        MuscleManager.opt = function(key)
+            if optionOverrides[key] ~= nil then return optionOverrides[key] end
+            return originalOpt(key)
+        end
+    end
+
+    local bodyPart = part or {
+        getFractureTime = function() return 0 end,
+        getSplintFactor = function() return 0 end,
+        isDeepWounded = function() return false end,
+        stitched = function() return false end,
+        getBleedingTime = function() return 0 end,
+        bandaged = function() return false end,
+    }
+    local bodyParts = list({ bodyPart })
+    local bodyDamage = {
+        getOverallBodyHealth = function() return 100 end,
+        getBodyParts = function() return bodyParts end,
+    }
+    local player = {
+        getPlayerNum = function() return 0 end,
+        getBodyDamage = function() return bodyDamage end,
+        getVehicle = function() return nil end,
+        getStats = function()
+            return {
+                getNumVisibleZombies = function() return 0 end,
+                getNumChasingZombies = function() return 0 end,
+                getNumVeryCloseZombies = function() return 0 end,
+            }
+        end,
+        getMoodles = function()
+            return { getMoodleLevel = function() return 0 end }
+        end,
+        isDead = function() return false end,
+        pressedMovement = function() return false end,
+        isAiming = function() return false end,
+        pressedCancelAction = function() return false end,
+    }
+
+    return MuscleManager, player, {
+        actions = actions,
+        tick = function()
+            for _, callback in ipairs(tickers) do callback() end
+        end,
+        speed = function() return speedSlot end,
+        multiplier = function() return multiplier end,
+        setSpeed = function(value) speedSlot = value end,
+        fitnessAction = function(player)
+            return setmetatable({ Type = "ISFitnessAction", character = player },
+                    { __index = ISFitnessAction })
+        end,
+    }
+end
+
+run("Auto Exercise restores held speed after vanilla ends a fitness action", function()
+    local MM, player, game = muscleFixture()
+    local state = { player = player, active = true, phase = "exercising" }
+    MM.states[0] = state
+    local action = game.fitnessAction(player)
+    game.actions[1] = action
+
+    game.tick()
+    assertEqual(game.speed(), 2, "initial held speed slot")
+
+    action:perform()
+
+    assertEqual(game.speed(), 2, "speed after vanilla fitness reset")
+    assertEqual(state.speedGaveUp, nil, "speed ownership after vanilla reset")
+end)
+
+run("Auto Exercise restores held speed after vanilla stops a fitness action", function()
+    local MM, player, game = muscleFixture()
+    local state = { player = player, active = true, phase = "exercising" }
+    MM.states[0] = state
+    local action = game.fitnessAction(player)
+    game.actions[1] = action
+
+    game.tick()
+    action:stop()
+
+    assertEqual(game.speed(), 2, "speed after vanilla fitness stop")
+    assertEqual(state.speedGaveUp, nil, "speed ownership after vanilla stop")
+end)
+
+run("Auto Exercise still respects manual 1x during a fitness action", function()
+    local MM, player, game = muscleFixture()
+    local state = { player = player, active = true, phase = "exercising" }
+    MM.states[0] = state
+    local action = game.fitnessAction(player)
+    game.actions[1] = action
+
+    game.tick()
+    game.setSpeed(1)
+    game.tick()
+    action:perform()
+
+    assertEqual(game.speed(), 1, "manual speed slot")
+    assertEqual(state.speedGaveUp, true, "manual override latch")
+end)
+
+run("Auto Exercise preserves a manually selected fast speed across fitness completion", function()
+    local MM, player, game = muscleFixture()
+    local state = { player = player, active = true, phase = "exercising" }
+    MM.states[0] = state
+    local action = game.fitnessAction(player)
+    game.actions[1] = action
+
+    game.tick()
+    game.setSpeed(3)
+    game.tick()
+    action:perform()
+
+    assertEqual(game.speed(), 3, "followed speed slot")
+    assertEqual(state.speedGaveUp, true, "manual override latch")
+end)
+
+run("Auto Exercise preserves a manual pause across fitness completion", function()
+    local MM, player, game = muscleFixture()
+    local state = { player = player, active = true, phase = "exercising" }
+    MM.states[0] = state
+    local action = game.fitnessAction(player)
+    game.actions[1] = action
+
+    game.tick()
+    game.setSpeed(0)
+    game.tick()
+    action:perform()
+
+    assertEqual(game.speed(), 0, "paused speed slot")
+    assertEqual(state.speedGaveUp, true, "manual override latch")
+end)
+
+run("Auto Exercise does not restore speed after its session stops", function()
+    local MM, player, game = muscleFixture()
+    local state = { player = player, active = true, phase = "exercising" }
+    MM.states[0] = state
+    local action = game.fitnessAction(player)
+    game.actions[1] = action
+
+    game.tick()
+    MM.states[0] = nil
+    state.active = false
+    action:perform()
+
+    assertEqual(game.speed(), 1, "speed after stopped session")
+end)
+
+local function injuryPart(fracture, splint, deepWound, stitched, bleeding, bandaged, partType)
+    return {
+        getFractureTime = function() return fracture or 0 end,
+        getSplintFactor = function() return splint or 0 end,
+        isDeepWounded = function() return deepWound == true end,
+        stitched = function() return stitched == true end,
+        getBleedingTime = function() return bleeding or 0 end,
+        bandaged = function() return bandaged == true end,
+        getType = function() return partType or "arm" end,
+    }
+end
+
+run("Auto Exercise allows a treated splinted fracture", function()
+    local MM, player = muscleFixture(injuryPart(100, 1, false, false, 0, false))
+    local reason = MM.checkSafety({ player = player, lastHealth = 100, setStartedAt = 0 })
+    assertEqual(reason, nil, "safety stop reason")
+end)
+
+run("Auto Exercise stops for an untreated fracture by default", function()
+    local MM, player = muscleFixture(injuryPart(100, 0, false, false, 0, false))
+    local reason = MM.checkSafety({ player = player, lastHealth = 100, setStartedAt = 0 })
+    assertEqual(reason, "UI_MM_stop_injury", "safety stop reason")
+end)
+
+run("Auto Exercise allows a fracture on a body part that cannot be splinted", function()
+    local MM, player = muscleFixture(
+            injuryPart(100, 0, false, false, 0, false, "head"))
+    local reason = MM.checkSafety({ player = player, lastHealth = 100, setStartedAt = 0 })
+    assertEqual(reason, nil, "safety stop reason")
+end)
+
+run("Auto Exercise injury safety can be switched off", function()
+    local MM, player = muscleFixture(
+            injuryPart(100, 0, false, false, 0, false), { stopInjury = false })
+    local reason = MM.checkSafety({ player = player, lastHealth = 100, setStartedAt = 0 })
+    assertEqual(reason, nil, "safety stop reason")
+end)
+
+run("Auto Exercise allows bandaged bleeding and stitched deep wounds", function()
+    local treated = injuryPart(0, 0, true, true, 100, true)
+    local MM, player = muscleFixture(treated)
+    local reason = MM.checkSafety({ player = player, lastHealth = 100, setStartedAt = 0 })
+    assertEqual(reason, nil, "safety stop reason")
+end)
+
+run("Auto Exercise stops for an unbandaged deep wound", function()
+    local MM, player = muscleFixture(injuryPart(0, 0, true, false, 0, false))
+    local reason = MM.checkSafety({ player = player, lastHealth = 100, setStartedAt = 0 })
+    assertEqual(reason, "UI_MM_stop_injury", "safety stop reason")
+end)
+
+run("Auto Exercise stops for unbandaged active bleeding", function()
+    local MM, player = muscleFixture(injuryPart(0, 0, false, false, 100, false))
+    local reason = MM.checkSafety({ player = player, lastHealth = 100, setStartedAt = 0 })
+    assertEqual(reason, "UI_MM_stop_injury", "safety stop reason")
 end)
 
 local function readFixture(options)

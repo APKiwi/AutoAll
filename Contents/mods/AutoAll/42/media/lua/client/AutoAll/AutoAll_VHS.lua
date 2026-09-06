@@ -134,16 +134,14 @@ end
 -- the book is worth 3x to 16x - and its lines are spent for good
 -- either way.
 --
--- getMultiplier(perk) > 0 is vanilla's own test for "this skill has a
--- live book bonus": it draws the arrows in the skills panel
--- (ISCharacterInfo.lua:155) and the multiplier line in the skill
--- tooltip (ISSkillProgressBar.lua:71). AddXP drops the entry once the
--- character's XP leaves the band the book covered, so it answers "I
--- have read the book that covers where I am now" - the honest reading
--- of the request.
+-- getMultiplier(perk) is the live book bonus vanilla applies to XP. The
+-- configured threshold below compares it with the maximum multiplier for
+-- the book covering the character's current two-level band. This makes 100%
+-- mean the whole book, while a lower setting accepts the partial bonuses
+-- vanilla grants every 10% of reading progress.
 ---------------------------------------------------------------------
 
---- Perk ids that some skill book in this build trains.
+--- Skill-book definitions by the perk id they train.
 ---
 --- Built from vanilla's own SkillBook table rather than a list typed
 --- out here, so a mod that registers its own skill book is picked up
@@ -152,27 +150,43 @@ end
 --- same Lua value twice and a table key has to be. Built lazily:
 --- SkillBook lives in media/lua/server and must not be touched at
 --- file load.
-local bookPerks = nil
+local booksByPerk = nil
 
-local function skillHasABook(perk)
-    if bookPerks == nil then
-        bookPerks = {}
+local function skillBookFor(perk)
+    if booksByPerk == nil then
+        booksByPerk = {}
         if type(SkillBook) == "table" then
             for _, entry in pairs(SkillBook) do
                 local ok, id = pcall(function() return entry.perk:getId() end)
-                if ok and id then bookPerks[id] = true end
+                if ok and id then booksByPerk[id] = entry end
             end
         end
     end
 
     local ok, id = pcall(function() return perk:getId() end)
-    return ok and id ~= nil and bookPerks[id] == true
+    if not ok or id == nil then return nil end
+    return booksByPerk[id]
 end
 
---- True when a skill book is currently paying a multiplier on this perk.
-local function bookRead(player, perk)
+--- True when the live multiplier reaches the configured fraction of the
+--- current book's full multiplier.
+local function bookThresholdMet(player, perk, book)
     local ok, multiplier = pcall(function() return player:getXp():getMultiplier(perk) end)
-    return ok and type(multiplier) == "number" and multiplier > 0
+    if not ok or type(multiplier) ~= "number" then return false end
+
+    local okLevel, level = pcall(function() return player:getPerkLevel(perk) end)
+    local band = okLevel and type(level) == "number"
+            and math.min(5, math.floor(math.max(0, level) / 2) + 1) or nil
+    local maximum = band and book["maxMultiplier" .. tostring(band)] or nil
+
+    -- A modded SkillBook entry may omit the vanilla maxMultiplier fields.
+    -- Keep the old active-bonus rule for those rather than hiding its tapes
+    -- permanently behind a threshold that cannot be calculated.
+    if type(maximum) ~= "number" or maximum <= 0 then return multiplier > 0 end
+
+    local threshold = tonumber(AA.opt("vhsBookXpThreshold")) or 100
+    threshold = math.max(1, math.min(100, threshold))
+    return multiplier + 0.0001 >= maximum * threshold / 100
 end
 
 --- Would the book gate throw this skill away for good?
@@ -182,8 +196,9 @@ end
 --- ones. There is no book to go and read for those, so gating them
 --- would hide those tapes for ever rather than defer them.
 local function blockedByBook(player, perk)
-    if not skillHasABook(perk) then return false end
-    return not bookRead(player, perk)
+    local book = skillBookFor(perk)
+    if not book then return false end
+    return not bookThresholdMet(player, perk, book)
 end
 
 --- The level at which media stops teaching a skill.

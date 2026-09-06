@@ -498,9 +498,11 @@
     "UI_AA_opt_ignoreNpcs_tt": "Every NPC mod builds its characters as zombies, so the game counts your own companion as one. With this on, only real zombies and NPCs that have you as their target stop a job.",
     "UI_AA_opt_medSplint": "Splint a fracture",
     "UI_AA_opt_medSplint_tt": "Uses a splint, or a plank and a ripped sheet, on a broken limb before dressing it - the same rules the Health window follows. Never the head or the torso.",
-    "UI_AA_opt_vhsBooksOnly": "Only tapes whose skill book I have read",
-    "UI_AA_opt_vhsBooksOnly_tt": "A tape’s XP is multiplied by the skill book’s bonus, and its lines are spent whether or not you had read the book. With this on, a tape is only watched while that skill’s book bonus is active. Skills with no book in the game are always watched.",
-    "UI_AA_vhs_nobook": "No tape within reach matches a skill book you have read.",
+    "UI_AA_opt_vhsBooksOnly": "Only tapes with enough skill-book XP bonus",
+    "UI_AA_opt_vhsBooksOnly_tt": "A tape’s XP is multiplied by the skill book’s bonus, and its lines are spent whether or not the book bonus is ready. Turn this on to use the minimum bonus below. Skills with no book in the game are always watched.",
+    "UI_AA_opt_vhsBookXpThreshold": "Minimum skill-book bonus (%)",
+    "UI_AA_opt_vhsBookXpThreshold_tt": "When the book gate is on, a skill tape is watched only when its active book bonus reaches this percentage of the current book’s full XP multiplier. 100% requires the whole book. Skills with no skill book and tapes that teach an unknown recipe are still watched.",
+    "UI_AA_vhs_nobook": "No tape within reach meets the skill-book XP threshold.",
     "UI_MM_opt_titleRead": "Reading",
     "UI_MM_opt_autoRead": "Read while resting",
     "UI_MM_opt_autoRead_tt": "Between sets the character reads a useful book from their own inventory and puts it down the moment endurance is back. Uses Auto Read’s own judgement of what is worth reading.",
@@ -508,5 +510,7 @@
     "UI_AA_opt_cookReach": "How far to look for ingredients, in tiles",
     "UI_AA_opt_cookReach_tt": "Tiles to search for cupboards, counters and fridges when cooking. Walls and locked crates still stop the search at any setting, so this only widens where it can already reach. Higher settings make right clicking a pot slower, because the sweep grows with the square of the distance.",
     "UI_AA_opt_healthFloor": "Stop below this health when overloaded",
-    "UI_AA_opt_healthFloor_tt": "A job stops when your health is below this AND you are over your carry limit. Both, never one on its own, which is why it can fire on a character who feels fine. Needs “Stop when taking damage” ticked. Set to 0 to switch this rule off and keep the rest of the damage stopping."
+    "UI_AA_opt_healthFloor_tt": "A job stops when your health is below this AND you are over your carry limit. Both, never one on its own, which is why it can fire on a character who feels fine. Needs “Stop when taking damage” ticked. Set to 0 to switch this rule off and keep the rest of the damage stopping.",
+    "UI_MM_opt_stopInjury": "Stop for untreated injuries",
+    "UI_MM_opt_stopInjury_tt": "Stops for active bleeding, unbandaged deep wounds and unsplinted arm or leg fractures. Splinted fractures, bandaged wounds and fractures that cannot be splinted do not stop training."
 }

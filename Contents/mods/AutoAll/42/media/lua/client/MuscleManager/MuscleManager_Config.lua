@@ -54,6 +54,7 @@ MM.defaults = {
     stopDamage    = true,
     stopLowHealth = true,
     minHealth     = 80,     -- overall body health (0-100) below which auto stops
+    stopInjury    = true,   -- stop for an injury that can still be treated
     stopManual    = true,   -- stop when the player moves/aims
     stopHeavyLoad = true,
     stopOnClose   = false,  -- stop when the fitness panel is closed
@@ -149,6 +150,7 @@ local function createModOptions()
     options:addTickBox("stopDamage", "UI_MM_opt_stopDamage", d.stopDamage, "UI_MM_opt_stopDamage_tt")
     options:addTickBox("stopLowHealth", "UI_MM_opt_stopLowHealth", d.stopLowHealth, "UI_MM_opt_stopLowHealth_tt")
     options:addSlider("minHealth", "UI_MM_opt_minHealth", 10, 99, 1, d.minHealth, "UI_MM_opt_minHealth_tt")
+    options:addTickBox("stopInjury", "UI_MM_opt_stopInjury", d.stopInjury, "UI_MM_opt_stopInjury_tt")
     options:addTickBox("stopManual", "UI_MM_opt_stopManual", d.stopManual, "UI_MM_opt_stopManual_tt")
     options:addTickBox("stopHeavyLoad", "UI_MM_opt_stopHeavyLoad", d.stopHeavyLoad, "UI_MM_opt_stopHeavyLoad_tt")
     options:addTickBox("stopOnClose", "UI_MM_opt_stopOnClose", d.stopOnClose, "UI_MM_opt_stopOnClose_tt")
