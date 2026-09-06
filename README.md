@@ -18,13 +18,16 @@ Three limits the uploader will not tell you about. It fails with
 `failed to update workshop item, result=8`, which is Steam's
 `k_EResultInvalidParam`, and names none of them:
 
-- **Description: 8000 characters max.** The uploader also appends a
+- **Description: 8000 BYTES max, not characters.** This description is full of
+  emoji and CJK, which cost three to four bytes each, so the byte count runs
+  about 160 ahead of the character count. Measure with
+  `len(text.encode('utf-8'))`. The uploader also appends a
   `Workshop ID:` / `Mod ID:` footer, about 42 characters, on every run, so
   keep the description under roughly 7900. Three copies of that footer had
   accumulated on the live listing before this repo took the description over.
   Running `./deploy.sh` before each upload overwrites the staged
   `workshop.txt` from here, which is what stops it accumulating again.
-- **Title: 128 characters max.**
+- **Title: 128 bytes max.**
 - **Tags must match `media/WorkshopTags.txt` exactly**, and the submit screen
   silently drops any it cannot match rather than failing. The spelling is
   `QoL`, not the `QOL` the Steam web API reports. After a failed submit,
