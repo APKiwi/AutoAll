@@ -209,6 +209,8 @@ local function splitCodes(text)
 end
 
 --- True when this one code entry would give the character something.
+--- The second return value names a player-actionable rejection when one
+--- applies, so an empty batch can explain why it is empty.
 ---
 --- Parsed exactly the way ISRadioInteractions.checkPlayer parses it,
 --- because that is the function that will run when the line plays:
@@ -223,7 +225,11 @@ local function codeTeaches(player, entry, gateBooks)
 
     if code == "RCP" then
         if rest == "" then return false end
-        local ok, known = pcall(function() return player:isRecipeKnown(rest) end)
+        -- The one-argument check also treats recipes exposed by the
+        -- SeeNotLearntRecipe sandbox option as known. Playback calls
+        -- learnRecipe, whose own guard is the strict check, so selection
+        -- has to ask the same question or it skips recipes the tape teaches.
+        local ok, known = pcall(function() return player:isRecipeActuallyKnown(rest) end)
         -- A recipe we cannot ask about counts as unknown: the worst case
         -- is one tape watched for nothing, and the alternative is silently
         -- skipping tapes that do teach.
@@ -241,11 +247,13 @@ local function codeTeaches(player, entry, gateBooks)
     if op == "-" or amount <= 0 then return false end
 
     local ok, level = pcall(function() return player:getPerkLevel(perk) end)
-    if ok and type(level) == "number" and level >= xpCutoff() then return false end
+    if ok and type(level) == "number" and level >= xpCutoff() then
+        return false, "capped"
+    end
 
     -- RCP is deliberately above this and untouched: a recipe is learned
     -- outright, there is no multiplier for a book to raise.
-    if gateBooks and blockedByBook(player, perk) then return false end
+    if gateBooks and blockedByBook(player, perk) then return false, "book" end
 
     return true
 end
@@ -262,8 +270,8 @@ end
 --- { item, index, lines }, where `lines` counts the unheard lines that
 --- still give something and `index` identifies the recording.
 --- `ignoreBooks` skips the "only tapes whose book I have read" gate.
---- Used to count what that gate is holding back, so a greyed entry can
---- say which of the two reasons applies.
+--- A rejected tape also returns flags for the book gate and media cutoff,
+--- so a greyed entry can say which reason applies.
 function VHS.appraise(player, item, ignoreBooks)
     if not VHS.isTape(item) then return nil end
 
@@ -274,6 +282,7 @@ function VHS.appraise(player, item, ignoreBooks)
 
     local count = media:getLineCount() or 0
     local teaching = 0
+    local reasons = { book = false, capped = false }
 
     for i = 0, count - 1 do
         local line = media:getLine(i)
@@ -287,9 +296,12 @@ function VHS.appraise(player, item, ignoreBooks)
                 local codes = line:getCodes()
                 if codes and codes ~= "" then
                     for _, entry in ipairs(splitCodes(codes)) do
-                        if codeTeaches(player, entry, gateBooks) then
+                        local teaches, reason = codeTeaches(player, entry, gateBooks)
+                        if teaches then
                             teaching = teaching + 1
                             break
+                        elseif reason then
+                            reasons[reason] = true
                         end
                     end
                 end
@@ -297,7 +309,7 @@ function VHS.appraise(player, item, ignoreBooks)
         end
     end
 
-    if teaching == 0 then return nil end
+    if teaching == 0 then return nil, reasons end
 
     -- The recording's own index is what the tape is tracked by. A modded
     -- recording that cannot produce one would put nil in a table key and
@@ -328,11 +340,12 @@ local function scan(container, player, found, seen, stats)
         local id = item:getID()
         if not seen[id] then
             seen[id] = true
-            local entry = VHS.appraise(player, item)
+            local entry, reasons = VHS.appraise(player, item)
             if entry then
                 table.insert(found, entry)
-            elseif stats and VHS.appraise(player, item, true) then
-                stats.blocked = stats.blocked + 1
+            elseif stats and reasons then
+                if reasons.book then stats.blocked = stats.blocked + 1 end
+                if reasons.capped then stats.capped = stats.capped + 1 end
             end
         end
     end
@@ -340,13 +353,10 @@ end
 
 --- Every tape within reach: the character's own inventory and bags, plus
 --- the containers the loot window is showing.
---- @return table found, number blockedByTheBookGate
+--- @return table found, number blockedByTheBookGate, number blockedByMediaCutoff
 function VHS.collect(player)
     local found, seen = {}, {}
-    -- Counted only while the gate is on: it costs a second appraisal
-    -- per rejected tape, and it exists solely so a greyed entry can say
-    -- "read the book first" instead of "nothing here teaches anything".
-    local stats = AA.opt("vhsBooksOnly") and { blocked = 0 } or nil
+    local stats = { blocked = 0, capped = 0 }
 
     scan(player:getInventory(), player, found, seen, stats)
 
@@ -359,7 +369,13 @@ function VHS.collect(player)
         end
     end
 
-    return found, stats and stats.blocked or 0
+    return found, stats.blocked, stats.capped
+end
+
+local function unavailableText(blocked, capped)
+    if capped > 0 then return getText("UI_AA_vhs_capped", xpCutoff()) end
+    if blocked > 0 then return getText("UI_AA_vhs_nobook") end
+    return getText("UI_AA_vhs_nothing")
 end
 
 --- The next tape to put in, or nil.
@@ -866,10 +882,9 @@ function VHS.start(player, device, firstItem)
         return
     end
 
-    local found, blocked = VHS.collect(player)
+    local found, blocked, capped = VHS.collect(player)
     if #found == 0 then
-        HaloTextHelper.addBadText(player,
-                getText(blocked > 0 and "UI_AA_vhs_nobook" or "UI_AA_vhs_nothing"))
+        HaloTextHelper.addBadText(player, unavailableText(blocked, capped))
         return
     end
 
@@ -948,11 +963,10 @@ local function addVHSMenu(playerNum, context, items)
             option.notAvailable = true
             tooltip.description = getText("UI_AA_vhs_nopower")
         else
-            local found, blocked = VHS.collect(player)
+            local found, blocked, capped = VHS.collect(player)
             if #found == 0 then
                 option.notAvailable = true
-                tooltip.description = getText(blocked > 0
-                        and "UI_AA_vhs_nobook" or "UI_AA_vhs_nothing")
+                tooltip.description = unavailableText(blocked, capped)
             else
                 tooltip.description = getText("UI_AA_vhs_option_tt", #found)
             end

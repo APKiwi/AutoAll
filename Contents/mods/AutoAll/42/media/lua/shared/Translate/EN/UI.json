@@ -309,6 +309,7 @@
     "UI_AA_vhs_stop": "Stop Watching",
     "UI_AA_vhs_stopbtn": "Stop Watching",
     "UI_AA_vhs_nothing": "No tape within reach still teaches anything.",
+    "UI_AA_vhs_capped": "No tape within reach can grant skill XP. The relevant skills have reached the sandbox media cutoff at level %1.",
     "UI_AA_vhs_nodevice": "There is no video player nearby.",
     "UI_AA_vhs_nopower": "The video player has no power.",
     "UI_AA_vhs_unreachable": "Cannot reach the video player.",

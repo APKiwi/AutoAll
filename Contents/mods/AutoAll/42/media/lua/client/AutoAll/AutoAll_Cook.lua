@@ -778,6 +778,21 @@ local function rememberUsed(task, item)
     end
 end
 
+--- True only when the item is directly in the character's inventory.
+---
+--- AA.holds is deliberately recursive, which is right for ingredients in
+--- bags. It is not enough for an evolved recipe's base item. Vanilla removes
+--- the old pot from character:getInventory(), so a pot still inside a bag is
+--- missed and the new meal is added beside it, duplicating the container.
+local function inMainInventory(player, item)
+    if not player or not item then return false end
+    local inventory = player:getInventory()
+    if not inventory then return false end
+
+    local ok, present = pcall(function() return inventory:contains(item) end)
+    return ok and present == true
+end
+
 local function queueAdd(task, recipe, item)
     local player = task.player
 
@@ -798,7 +813,7 @@ local function queueAdd(task, recipe, item)
                 player, item, item:getContainer(), player:getInventory(), nil))
         if instanceof(item, "Food") then item:setChef(player:getUsername()) end
     end
-    if not AA.holds(player, task.base) then
+    if not inMainInventory(player, task.base) then
         ISTimedActionQueue.add(ISInventoryTransferUtil.newInventoryTransferAction(
                 player, task.base, task.base:getContainer(), player:getInventory(), nil))
         if instanceof(task.base, "Food") then task.base:setChef(player:getUsername()) end
@@ -994,7 +1009,7 @@ local function fillThink(task)
     end
 
     -- The pot arrived, so stop waiting for it.
-    if task.fillWaitFor == "pot" and AA.holds(player, base) then
+    if task.fillWaitFor == "pot" and inMainInventory(player, base) then
         task.fillWaitFor, task.fillSettle = nil, nil
     end
 
@@ -1016,7 +1031,7 @@ local function fillThink(task)
     -- and fetching it is a round of its own: the transfer replaces the
     -- item instance on a server, and a fill action built on the old one
     -- fills nothing.
-    if not AA.holds(player, base) then
+    if not inMainInventory(player, base) then
         ISTimedActionQueue.add(ISInventoryTransferUtil.newInventoryTransferAction(
                 player, base, base:getContainer(), player:getInventory(), nil))
         task.fillWaitFor = "pot"
