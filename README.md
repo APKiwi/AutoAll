@@ -14,10 +14,22 @@ in-game uploader overwrites the live listing with them, so treat that file as
 the published page rather than as notes. `preview.png` is the listing image,
 and it is uploaded too, so it has to be the real one rather than a placeholder.
 
-The uploader appends a `Workshop ID:` and `Mod ID:` footer to the description
-every time it runs. Three copies had accumulated on the live listing before
-this repo took the description over. Never paste that footer back into
-`workshop.txt` or it grows again on the next upload.
+Three limits the uploader will not tell you about. It fails with
+`failed to update workshop item, result=8`, which is Steam's
+`k_EResultInvalidParam`, and names none of them:
+
+- **Description: 8000 characters max.** The uploader also appends a
+  `Workshop ID:` / `Mod ID:` footer, about 42 characters, on every run, so
+  keep the description under roughly 7900. Three copies of that footer had
+  accumulated on the live listing before this repo took the description over.
+  Running `./deploy.sh` before each upload overwrites the staged
+  `workshop.txt` from here, which is what stops it accumulating again.
+- **Title: 128 characters max.**
+- **Tags must match `media/WorkshopTags.txt` exactly**, and the submit screen
+  silently drops any it cannot match rather than failing. The spelling is
+  `QoL`, not the `QOL` the Steam web API reports. After a failed submit,
+  check `git diff` on the staged `workshop.txt`: the screen writes the form
+  back over it, so a dropped tag shows up there.
 
 `AUDIT-*.md` are code audits. `PATCHNOTES-*.md` are per-release notes.
 
