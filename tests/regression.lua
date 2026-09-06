@@ -298,10 +298,11 @@ local function tape(id, lines)
     return result
 end
 
-local function vhsFixture(items, cutoff, level, recipeActuallyKnown)
-    resetGlobals({ vhsBooksOnly = false, vhsNearby = false })
+local function vhsFixture(items, cutoff, level, recipeActuallyKnown, booksOnly)
+    resetGlobals({ vhsBooksOnly = booksOnly == true, vhsNearby = false })
     local perk = { getId = function() return "Mechanics" end }
     Perks.Mechanics = perk
+    SkillBook.Mechanics = { perk = perk }
     SandboxVars.LevelForMediaXPCutoff = cutoff
     local mainInventory = inventory(items)
     for _, value in ipairs(items) do value.container = mainInventory end
@@ -309,6 +310,9 @@ local function vhsFixture(items, cutoff, level, recipeActuallyKnown)
         getInventory = function() return mainInventory end,
         isKnownMediaLine = function() return false end,
         getPerkLevel = function() return level end,
+        getXp = function()
+            return { getMultiplier = function() return 0 end }
+        end,
         isRecipeKnown = function(_, recipe, strict)
             if strict == true then return recipeActuallyKnown end
             return true
@@ -349,6 +353,30 @@ run("VHS reports the configured media XP cutoff", function()
     assertNotNil(textCall, "no unavailable message was requested")
     assertEqual(textCall.key, "UI_AA_vhs_capped", "unavailable message")
     assertEqual(textCall.args[1], 5, "cutoff message value")
+end)
+
+run("VHS preserves the unread skill book message", function()
+    local value = tape(12, { mediaLine("line-12", "MEC+1") })
+    local VHS, player = vhsFixture({ value }, 5, 1, true, true)
+    local found, blocked, capped = VHS.collect(player)
+    assertEqual(#found, 0, "eligible tape count")
+    assertEqual(blocked, 1, "book-blocked tape count")
+    assertEqual(capped, 0, "capped tape count")
+
+    local textCall = nil
+    getText = function(key, ...)
+        textCall = { key = key, args = { ... } }
+        return key
+    end
+    local data = {
+        getMediaType = function() return 1 end,
+        getIsTurnedOn = function() return true end,
+    }
+    local square = { getDeviceData = function() return data end }
+    VHS.start(player, { object = {}, square = square })
+
+    assertNotNil(textCall, "no unavailable message was requested")
+    assertEqual(textCall.key, "UI_AA_vhs_nobook", "unavailable message")
 end)
 
 local function readFixture(options)
