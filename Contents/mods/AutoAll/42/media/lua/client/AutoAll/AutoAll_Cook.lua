@@ -155,7 +155,25 @@ end
 --- Two: a kitchen is a counter on one side and a fridge on the other, and
 --- one tile left the far one out. Wider than the base game's own click
 --- reach, so the wall and lock tests below carry the weight.
-local REACH = 2
+---
+--- > *Sentient_Worm:* "Is it possible to increase the range to search for
+--- > ingredients when cooking"
+---
+--- It is, and safely: every square found still goes through
+--- squareInReach below, which hop-walks the squares between with
+--- vanilla's own isBlockedTo, and through the locked-crate test. A wider
+--- sweep cannot reach through a wall or into somebody's locked crate, it
+--- can only cost more time. The sweep is (2n+1) squared squares, each
+--- hop-walked up to n steps, and it runs on every right click of a pot,
+--- which is why the slider stops at 8 rather than going wherever the
+--- player likes.
+local REACH_DEFAULT = 2
+
+local function reach()
+    local value = AA.opt("cookReach")
+    if type(value) == "number" and value >= 1 then return value end
+    return REACH_DEFAULT
+end
 
 --- Vanilla's wall test, from ISObjectClickHandler. isBlockedTo only knows
 --- about the square next to you, so anything further out is reached one
@@ -230,8 +248,9 @@ function Cook.getContainers(player)
     end
 
     local z = square:getZ()
-    for dx = -REACH, REACH do
-        for dy = -REACH, REACH do
+    local r = reach()
+    for dx = -r, r do
+        for dy = -r, r do
             local sq = cell:getGridSquare(square:getX() + dx, square:getY() + dy, z)
             if sq and squareInReach(square, sq) then
                 local objects = sq:getObjects()

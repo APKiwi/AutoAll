@@ -608,12 +608,30 @@ end
 --- the damage stop outright - which is how a mechanics run carried a
 --- character at three times their limit until it killed them. Being heavy
 --- is still not a reason to stop; being heavy and hurt is.
-local HEALTH_FLOOR = 70
+--- The 70 this was hardcoded at is now only the default.
+---
+--- > *Kyo:* "Whenever I try to do anything with auto all, it tells me
+--- > I'm too hurt and stops immediately. The character is fully capable
+--- > of carrying and doing all the steps."
+---
+--- A character who lives hurt and overloaded hits this on the first
+--- think of every job, and the only escape was unticking stop-on-damage,
+--- which throws away every damage stop to get out of one. The floor is a
+--- slider now, and 0 switches this rule off on its own.
+local HEALTH_FLOOR_DEFAULT = 70
 
-local function carryingItOff(task, health)
+--- Read once per safety check and passed down, so the two tests below
+--- cannot disagree if the player moves the slider mid-job.
+local function healthFloor()
+    local value = AA.opt("healthFloor")
+    if type(value) == "number" then return value end
+    return HEALTH_FLOOR_DEFAULT
+end
+
+local function carryingItOff(task, health, floor)
     if task.allowHeavy ~= true then return false end
     if not AA.isOverloaded(task.player) then return false end
-    return health >= HEALTH_FLOOR
+    return health >= floor
 end
 
 --- True when this task said in advance that the health it is watching go
@@ -728,6 +746,7 @@ function AA.checkSafety(task)
     local health = player:getBodyDamage():getOverallBodyHealth()
     local damaged = health < (task.lastHealth or health) - 0.05
     task.lastHealth = health
+    local floor = healthFloor()
 
     -- ignoreDamage tasks never stop for health at all. Asked for
     -- explicitly, twice, for Auto Mechanics: a mechanic is carrying a
@@ -752,11 +771,11 @@ function AA.checkSafety(task)
     -- ignoreDamage is unchanged and still waives the lot, which is what
     -- Auto Mechanics asked for.
     if not task.ignoreDamage and AA.opt("stopDamage")
-            and not carryingItOff(task, health)
+            and not carryingItOff(task, health, floor)
             and not expectedDamage(task) then
         -- carryingItOff is false below the floor by construction, so
         -- allowHeavy still buys nothing down here.
-        if health < HEALTH_FLOOR and AA.isOverloaded(player) then
+        if health < floor and AA.isOverloaded(player) then
             return getText("UI_AA_stop_hurt")
         end
         if damaged then

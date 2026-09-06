@@ -68,6 +68,10 @@ AA.defaults = {
     cookReturnItems    = true,  -- put borrowed items back where they came from
     cookPriority       = 1,     -- 1 calories / 2 hunger / 3 balanced
     cookBadFromLevel   = 0,     -- Cooking level that unlocks bad ingredients (0 = never)
+    -- Tiles to sweep for ingredients. Two is what this was fixed at, and
+    -- it stays the default so nobody's kitchen behaves differently on an
+    -- update. The wall and locked-crate tests apply at every radius.
+    cookReach          = 2,
     -- Off by default, because it changes which ingredients go in the pot
     -- and nobody should have that change under them on an update.
     -- Requested by Tourette: "maybe also an option to use ingredients
@@ -188,6 +192,10 @@ AA.defaults = {
     -- it off to stop for anything at all, NPC or not.
     ignoreNpcs         = true,
     stopDamage         = true,
+    -- Body health below which a job stops when the character is ALSO over
+    -- their carry limit. Both conditions, always. 70 is what this was
+    -- fixed at, 0 turns the rule off without giving up stop-on-damage.
+    healthFloor        = 70,
 
     -- The Auto All tab in the character window. On by default; a
     -- controller player asked to be able to take it out of the tab
@@ -404,6 +412,7 @@ local function createModOptions()
     options:addTickBox("cookSpoilFirst", "UI_AA_opt_cookSpoilFirst", d.cookSpoilFirst, "UI_AA_opt_cookSpoilFirst_tt")
     options:addTickBox("cookReturnItems", "UI_AA_opt_cookReturnItems", d.cookReturnItems, "UI_AA_opt_cookReturnItems_tt")
     options:addSlider("cookBadFromLevel", "UI_AA_opt_cookBadFromLevel", 0, 10, 1, d.cookBadFromLevel, "UI_AA_opt_cookBadFromLevel_tt")
+    options:addSlider("cookReach", "UI_AA_opt_cookReach", 1, 8, 1, d.cookReach, "UI_AA_opt_cookReach_tt")
 
     options:addTitle("UI_AA_opt_titleClean")
     options:addTickBox("cleanSelf", "UI_AA_opt_cleanSelf", d.cleanSelf, "UI_AA_opt_cleanSelf_tt")
@@ -470,6 +479,7 @@ local function createModOptions()
     options:addTickBox("stopZombie", "UI_AA_opt_stopZombie", d.stopZombie, "UI_AA_opt_stopZombie_tt")
     options:addTickBox("ignoreNpcs", "UI_AA_opt_ignoreNpcs", d.ignoreNpcs, "UI_AA_opt_ignoreNpcs_tt")
     options:addTickBox("stopDamage", "UI_AA_opt_stopDamage", d.stopDamage, "UI_AA_opt_stopDamage_tt")
+    options:addSlider("healthFloor", "UI_AA_opt_healthFloor", 0, 100, 5, d.healthFloor, "UI_AA_opt_healthFloor_tt")
 
     options:addTitle("UI_AA_opt_titleMisc")
     options:addTickBox("showTab", "UI_AA_opt_showTab", d.showTab, "UI_AA_opt_showTab_tt")
