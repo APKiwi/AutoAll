@@ -34,7 +34,8 @@ Three limits the uploader will not tell you about. It fails with
   check `git diff` on the staged `workshop.txt`: the screen writes the form
   back over it, so a dropped tag shows up there.
 
-`AUDIT-*.md` are code audits. `PATCHNOTES-*.md` are per-release notes.
+`AUDIT-*.md` are code audits. Release notes are not kept here: they are
+written straight into the Workshop change log, which is the only copy.
 
 Release: commit, then `./deploy.sh`, then upload from the in-game Workshop
 screen. The folder under `~/Zomboid/Workshop/` is a build output, never edit

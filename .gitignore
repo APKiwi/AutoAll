@@ -1,2 +1,5 @@
 .DS_Store
 .worktrees/
+
+# Release notes live on the Workshop change log, never in the repo.
+PATCHNOTES-*.md
