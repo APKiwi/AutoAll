@@ -1,8 +1,10 @@
 --[[
-    Auto All - Open cans and jars (Build 42 / SP + MP)
+    Auto All - Open what is sealed (Build 42 / SP + MP)
     ------------------------------------------------------------------
-    "Open Every Can and Jar", on any sealed tin or preserved jar - in
-    your inventory or sitting in a container you have open.
+    "Open Every Can and Jar", on any sealed tin or preserved jar.
+    "Unpack Every Carton" and "Open Every Box", on ammunition and on the
+    nails and screws that share its packaging. In your inventory or
+    sitting in a container you have open, either way.
 
     > *Dodo31320:* "Option to open canned / jarred food for cooking
     > recipes?"
@@ -14,7 +16,9 @@
     ------------------------------------------------------------------
     What counts as openable
 
-    Eight vanilla recipes, all `category = Cooking`:
+    Three families, defined in the FAMILIES table below. Food is where
+    this module started, and it is eight vanilla recipes, all
+    `category = Cooking`:
 
       OpenCannedFood / ...WithKnifeOrSharpStoneFlake  the labelled tins
       OpenCannedFood2                                 corned beef, sardines
@@ -42,6 +46,28 @@
       (`OpenBottleOfWine`, `OpenBottleOfBeer`). They are deliberately
       NOT in the list below - "open every can" should not go through
       the drinks cabinet.
+
+    The other two families are packaging, and the game keeps their
+    recipe on `DoubleClickRecipe` rather than `OpeningRecipe`:
+
+      OpenCarton12            every ammo carton, and nails and screws
+      OpenBoxOfBullets50      9mm, .45, .38, .357
+      OpenBoxOfBullets20      .44, .308, 5.56, .30-30
+      OpenBoxOfShotgunShells  shells
+      OpenBox100              nails, screws, cap gun caps
+
+    Read from `recipes_ammunition.txt` and `recipes_packing.txt`. Two
+    facts about those are worth writing down:
+
+    * They need no tool. Every one is `InHandCraft` with no tool input,
+      so the "no can opener within reach" dead end cannot happen and
+      those families point that message somewhere honest instead.
+
+    * Opening ammunition makes you HEAVIER. A 9mm carton is 8.0, its
+      twelve boxes are 9.6, and those as loose rounds are 12.0. That is
+      why the carton and the box are two menu entries rather than one
+      cascade: going all the way down is a decision rather than a
+      default, and the two run in sequence for anyone who wants it.
 
     ------------------------------------------------------------------
     Why this runs in two phases
@@ -77,35 +103,149 @@ AA.openLoaded = true
 AA.Open = AA.Open or {}
 local Open = AA.Open
 
--- Every vanilla recipe that turns a sealed food container into an open
--- one. Matched by name, so a modded tin that reuses a vanilla recipe is
--- picked up for free and nothing here has to track vanilla's item list.
-local RECIPES = {
-    "OpenCannedFood",
-    "OpenCannedFood2",
-    "OpenCannedFoodWithKnifeOrSharpStoneFlake",
-    "OpenJarOfFood",
-    "OpenUnlabeledCan",
-    "OpenUnlabeledCanWithKnifeOrSharpStoneFlake",
-    "OpenDentedUnlabeledCan",
-    "OpenDentedUnlabeledCanWithKnifeOrSharpStoneFlake",
-    "OpenWaterRationCan",
-    "OpenWaterRationCanWithKnifeOrSharpStoneFlake",
+---------------------------------------------------------------------
+-- three families, one engine
+--
+-- A family answers three questions about an item and nothing else:
+-- what opens it, how to recognise it cheaply, and what the messages
+-- call it. Everything below this table - gathering, the two phase
+-- craft, batching, putting the results away - never asks which family
+-- it is holding.
+--
+-- Recipes are matched by NAME rather than by item type, so a modded tin
+-- or a modded ammo box that reuses a vanilla recipe is picked up for
+-- free and nothing here has to track vanilla's item list.
+--
+-- The cheap pre-filter differs per family because the game stores the
+-- association in two different places: food carries OpeningRecipe,
+-- packaging carries DoubleClickRecipe. Both are plain recipe-name
+-- strings read straight off the item, and reading one costs nothing
+-- next to asking the crafting engine. That is what keeps the cost off
+-- every right click that lands on something else.
+---------------------------------------------------------------------
+
+local function openingRecipeOf(item)
+    return item:getOpeningRecipe()
+end
+
+local function doubleClickRecipeOf(item)
+    return item:getDoubleClickRecipe()
+end
+
+local FAMILIES = {
+    -- The sealed tins and preserved jars this module started as. Ten
+    -- recipe names, all category = Cooking, from recipes_cannedFood.txt
+    -- and recipes_jarring.txt.
+    food = {
+        key   = "food",
+        named = openingRecipeOf,
+        recipes = {
+            "OpenCannedFood",
+            "OpenCannedFood2",
+            "OpenCannedFoodWithKnifeOrSharpStoneFlake",
+            "OpenJarOfFood",
+            "OpenUnlabeledCan",
+            "OpenUnlabeledCanWithKnifeOrSharpStoneFlake",
+            "OpenDentedUnlabeledCan",
+            "OpenDentedUnlabeledCanWithKnifeOrSharpStoneFlake",
+            "OpenWaterRationCan",
+            "OpenWaterRationCanWithKnifeOrSharpStoneFlake",
+        },
+        -- The tins whose script carries no OpeningRecipe line. Everything
+        -- else either names its recipe (the sixteen labelled tins, corned
+        -- beef and sardines) or carries base:preservedfood (every jar).
+        extraTypes = {
+            ["Base.MysteryCan"]      = true,
+            ["Base.DentedCan"]       = true,
+            ["Base.WaterRationCan"]  = true,
+        },
+        tag = ItemTag and ItemTag.PRESERVED_FOOD or nil,
+        text = {
+            option    = "UI_AA_open_option",
+            optionAll = "UI_AA_open_option_all",
+            labelAll  = "UI_AA_open_label_all",
+            optionTt  = "UI_AA_open_option_tt",
+            started   = "UI_AA_open_started",
+            working   = "UI_AA_open_working",
+            done      = "UI_AA_open_done",
+            nothing   = "UI_AA_open_nothing",
+            notool    = "UI_AA_open_notool",
+            blocked   = "UI_AA_open_blocked",
+            stop      = "UI_AA_open_stop",
+        },
+    },
+
+    -- A carton of twelve.
+    --
+    -- > *Anwmalos:* "Are you planning to add ammo/ammo boxes/cartons to
+    -- > this compendium?"
+    --
+    -- One recipe covers every one of them. OpenCarton12 takes the nine
+    -- ammo cartons and the nails and screws cartons together, through a
+    -- single itemMapper, so splitting ammo out would mean keeping an item
+    -- list against a recipe that does not have one. They are all in.
+    carton = {
+        key     = "carton",
+        named   = doubleClickRecipeOf,
+        recipes = { "OpenCarton12" },
+        text = {
+            option    = "UI_AA_unpack_option",
+            optionAll = "UI_AA_unpack_option_all",
+            labelAll  = "UI_AA_unpack_label_all",
+            optionTt  = "UI_AA_unpack_option_tt",
+            started   = "UI_AA_unpack_started",
+            working   = "UI_AA_unpack_working",
+            done      = "UI_AA_unpack_done",
+            nothing   = "UI_AA_unpack_nothing",
+            -- No tool opens a carton, so the two dead ends read the same.
+            notool    = "UI_AA_unpack_blocked",
+            blocked   = "UI_AA_unpack_blocked",
+            stop      = "UI_AA_unpack_stop",
+        },
+    },
+
+    -- A box. Fifty rounds for the pistol calibres, twenty for the rifle
+    -- ones, shells, and OpenBox100 for the nails, screws and cap gun
+    -- caps the cartons above unpack into.
+    --
+    -- Deliberately a second entry rather than the tail of one cascade. A
+    -- carton opened all the way down is 600 loose rounds and half again
+    -- the weight it started at, which is a choice rather than a default.
+    -- Running both entries in turn still gets there.
+    box = {
+        key   = "box",
+        named = doubleClickRecipeOf,
+        recipes = {
+            "OpenBoxOfBullets50",
+            "OpenBoxOfBullets20",
+            "OpenBoxOfShotgunShells",
+            "OpenBox100",
+        },
+        text = {
+            option    = "UI_AA_openbox_option",
+            optionAll = "UI_AA_openbox_option_all",
+            labelAll  = "UI_AA_openbox_label_all",
+            optionTt  = "UI_AA_openbox_option_tt",
+            started   = "UI_AA_openbox_started",
+            working   = "UI_AA_openbox_working",
+            done      = "UI_AA_openbox_done",
+            nothing   = "UI_AA_openbox_nothing",
+            notool    = "UI_AA_openbox_blocked",
+            blocked   = "UI_AA_openbox_blocked",
+            stop      = "UI_AA_openbox_stop",
+        },
+    },
 }
 
-local WANTED = {}
-for _, name in ipairs(RECIPES) do WANTED[name] = true end
+-- Ordered, so a right click resolves to exactly one family and the menu
+-- is built the same way every time.
+local FAMILY_ORDER = { "food", "carton", "box" }
 
--- The tins whose script carries no OpeningRecipe line. Everything else
--- either names its recipe (the sixteen labelled tins, corned beef and
--- sardines) or carries base:preservedfood (every jar).
-local EXTRA_TYPES = {
-    ["Base.MysteryCan"]      = true,
-    ["Base.DentedCan"]       = true,
-    ["Base.WaterRationCan"]  = true,
-}
-
-local PRESERVED = ItemTag and ItemTag.PRESERVED_FOOD or nil
+for _, name in ipairs(FAMILY_ORDER) do
+    local family = FAMILIES[name]
+    family.wanted = {}
+    for _, recipe in ipairs(family.recipes) do family.wanted[recipe] = true end
+end
 
 ---------------------------------------------------------------------
 -- helpers
@@ -158,9 +298,9 @@ end
 --- middle - a menu handler is already inside a pcall, so it would not
 --- even be noticed - left the depth above zero and the stale cache in
 --- place for the rest of the session. Wrong recipes, permanently.
-local function withCache(fn, a, b)
+local function withCache(fn, a, b, c)
     beginCache()
-    local ok, first, second = pcall(fn, a, b)
+    local ok, first, second = pcall(fn, a, b, c)
     endCache()
     if not ok then
         print("[AutoAll] open: " .. tostring(first))
@@ -178,18 +318,35 @@ end
 ---
 --- Only ever used to narrow "everything within reach" before the
 --- crafting engine is asked. The engine still has the final say.
-function Open.isCandidate(item)
-    if not item then return false end
+local function matchesFamily(item, family)
+    local ok, named = pcall(family.named, item)
+    if ok and type(named) == "string" and family.wanted[named] then return true end
 
-    local ok, named = pcall(function() return item:getOpeningRecipe() end)
-    if ok and type(named) == "string" and WANTED[named] then return true end
-
-    if PRESERVED then
-        local okTag, tagged = pcall(function() return item:hasTag(PRESERVED) end)
+    if family.tag then
+        local okTag, tagged = pcall(function() return item:hasTag(family.tag) end)
         if okTag and tagged == true then return true end
     end
 
-    return EXTRA_TYPES[item:getFullType()] == true
+    return family.extraTypes ~= nil
+            and family.extraTypes[item:getFullType()] == true
+end
+
+--- Which family this item belongs to, or nil when it is not one of ours.
+function Open.familyOf(item)
+    if not item then return nil end
+
+    for _, name in ipairs(FAMILY_ORDER) do
+        local family = FAMILIES[name]
+        if matchesFamily(item, family) then return family end
+    end
+
+    return nil
+end
+
+--- Kept as a boolean because the menu guard only asks whether the click
+--- landed on something this module opens at all.
+function Open.isCandidate(item)
+    return Open.familyOf(item) ~= nil
 end
 
 --- The opening recipe for this item, if the game will give us one.
@@ -201,7 +358,7 @@ end
 --- Cached by item type while a cache is open: which recipe applies
 --- depends on the type and on the tools in reach, and neither changes
 --- inside one menu build.
-local function recipeFor(player, item, containers)
+local function recipeFor(player, item, containers, family)
     local key = cache and item:getFullType()
     if key then
         local hit = cache[key]
@@ -222,7 +379,7 @@ local function recipeFor(player, item, containers)
         local name = recipe:getName()
         -- Matched loosely: depending on the build getName() may or may
         -- not carry the module prefix.
-        for _, wanted in ipairs(RECIPES) do
+        for _, wanted in ipairs(family.recipes) do
             if name == wanted or string.find(name, wanted, 1, true) then
                 if key then cache[key] = recipe end
                 return recipe
@@ -264,7 +421,7 @@ end
 ---
 --- `fullType` narrows it to one kind, the way "Open All Beans" does.
 --- nil means everything.
-function Open.collect(player, fullType)
+function Open.collect(player, fullType, family)
     local seen = {}
     local matches = function(item)
         -- Judge each item exactly once.
@@ -281,7 +438,7 @@ function Open.collect(player, fullType)
         seen[item] = true
 
         if fullType and item:getFullType() ~= fullType then return false end
-        return Open.isCandidate(item)
+        return matchesFamily(item, family)
     end
 
     local carried, stored = {}, {}
@@ -322,20 +479,20 @@ end
 --- How many of them can actually be opened right now, and how many
 --- there are. Runs inside a cache: this is the count the menu shows.
 --- @return number doable, number total
-local function countDoableNow(player, fullType)
-    local items = Open.collect(player, fullType)
+local function countDoableNow(player, fullType, family)
+    local items = Open.collect(player, fullType, family)
     if #items == 0 then return 0, 0 end
 
     local containers = containersOf(player)
     local doable = 0
     for _, item in ipairs(items) do
-        if recipeFor(player, item, containers) then doable = doable + 1 end
+        if recipeFor(player, item, containers, family) then doable = doable + 1 end
     end
     return doable, #items
 end
 
-function Open.countDoable(player, fullType)
-    local doable, total = withCache(countDoableNow, player, fullType)
+function Open.countDoable(player, fullType, family)
+    local doable, total = withCache(countDoableNow, player, fullType, family)
     return doable or 0, total or 0
 end
 
@@ -412,7 +569,7 @@ local function queueCrafting(task)
         -- Re-checked per item: an item may have been eaten, dropped or
         -- opened by hand while the transfers ran.
         local container = item:getContainer()
-        local recipe = container and recipeFor(player, item, containers) or nil
+        local recipe = container and recipeFor(player, item, containers, task.family) or nil
 
         if recipe then
             ISInventoryPaneContextMenu.OnNewCraft(item, recipe, playerNum, false, nil)
@@ -555,7 +712,7 @@ end
 local function planRound(task)
     local player = task.player
 
-    local items = Open.collect(player, task.fullType)
+    local items = Open.collect(player, task.fullType, task.family)
     task.lastItems = #items
     task.lastOpenable, task.lastDoable, task.lastPossible = nil, nil, nil
     if #items == 0 then
@@ -570,7 +727,7 @@ local function planRound(task)
     -- item found - a jar and a tin do not share a recipe.
     local openable, first, recipe = {}, nil, nil
     for _, item in ipairs(items) do
-        local r = recipeFor(player, item, containers)
+        local r = recipeFor(player, item, containers, task.family)
         if r then
             if not first then first, recipe = item, r end
             table.insert(openable, item)
@@ -668,17 +825,18 @@ end
 -- including the ones with an opener in hand - an empty pile, a stale batch
 -- and a tin the engine will not offer a recipe for all ended there. Same
 -- three-way split, and the same diagnostic line, as Auto Dismantle.
-local STOP_TEXT = {
-    nothing = "UI_AA_open_nothing",
-    notool  = "UI_AA_open_notool",
-    blocked = "UI_AA_open_blocked",
-}
+--
+-- The three reasons are named the same way in every family's text table,
+-- so the split survives a job that is opening ammo boxes rather than tins.
+-- A carton needs no tool, and that family points notool at the same
+-- string as blocked rather than pretending a can opener is missing.
 
 local function stopText(task)
     -- One line naming the dead end, because "none of them can be opened
     -- right now" is the honest message and still not a diagnosis.
     -- Everything the planner decided from, in the order it decided it.
-    print("[AutoAll] open stopping: reason=" .. tostring(task.failReason or "unset")
+    print("[AutoAll] open stopping: family=" .. tostring(task.family and task.family.key)
+            .. " reason=" .. tostring(task.failReason or "unset")
             .. " items=" .. tostring(task.lastItems)
             .. " openable=" .. tostring(task.lastOpenable)
             .. " doable=" .. tostring(task.lastDoable)
@@ -688,7 +846,8 @@ local function stopText(task)
             .. " succeeded=" .. tostring(task.succeeded)
             .. " rounds=" .. tostring(task.rounds)
             .. " emptyCrafts=" .. tostring(task.emptyCrafts or 0))
-    return getText(STOP_TEXT[task.failReason] or "UI_AA_open_blocked")
+    local text = task.family.text
+    return getText(text[task.failReason] or text.blocked)
 end
 
 --- One round, inside a cache. Every recipe lookup a round makes asks
@@ -712,7 +871,7 @@ local function think(task)
 
     if task.phase == "gathering" then
         task.phase = "crafting"
-        AA.reason(task, getText("UI_AA_open_working"))
+        AA.reason(task, getText(task.family.text.working))
         local queued, unsettled = withCache(queueCrafting, task)
         queued = queued or 0
         unsettled = unsettled or 0
@@ -789,16 +948,19 @@ local function think(task)
         return
     end
 
-    AA.stop(player, getText("UI_AA_open_done", task.succeeded), false)
+    AA.stop(player, getText(task.family.text.done, task.succeeded), false)
 end
 
-function Open.start(player, fullType, label, destination)
+function Open.start(player, fullType, label, destination, familyKey)
     if not player then return end
 
-    local items = withCache(Open.collect, player, fullType) or {}
+    local family = FAMILIES[familyKey or "food"]
+    if not family then return end
+
+    local items = withCache(Open.collect, player, fullType, family) or {}
 
     if #items == 0 then
-        HaloTextHelper.addBadText(player, getText("UI_AA_open_nothing"))
+        HaloTextHelper.addBadText(player, getText(family.text.nothing))
         return
     end
 
@@ -816,6 +978,10 @@ function Open.start(player, fullType, label, destination)
     local task = {
         kind         = "open",
         player       = player,
+        -- One job kind for all three families, because only one task runs
+        -- at a time anyway. The family is what the messages and the
+        -- matching read.
+        family       = family,
         fullType     = fullType,        -- nil means "everything in reach"
         items        = {},
         supplies     = {},
@@ -839,7 +1005,7 @@ function Open.start(player, fullType, label, destination)
         phase        = "gathering",
         think        = think,
         allowMove    = true,
-        startText    = getText("UI_AA_open_started", #items, label),
+        startText    = getText(family.text.started, #items, label),
     }
 
     AA.startTask(task)
@@ -849,12 +1015,13 @@ function Open.start(player, fullType, label, destination)
     end
 end
 
-Open.onStartAll = function(player)
-    Open.start(player, nil, getText("UI_AA_open_label_all"))
+Open.onStartAll = function(player, args)
+    local family = FAMILIES[args and args.family or "food"] or FAMILIES.food
+    Open.start(player, nil, getText(family.text.labelAll), nil, family.key)
 end
 
 Open.onStartOne = function(player, args)
-    Open.start(player, args.fullType, args.label, args.destination)
+    Open.start(player, args.fullType, args.label, args.destination, args.family)
 end
 
 Open.onStop = function(player)
@@ -865,8 +1032,8 @@ end
 -- context menu
 ---------------------------------------------------------------------
 
-local function addEntry(context, player, label, fullType, callback, args)
-    local doable, total = Open.countDoable(player, fullType)
+local function addEntry(context, player, family, label, fullType, callback, args)
+    local doable, total = Open.countDoable(player, fullType, family)
     if total == 0 then return end
 
     local option = AA.addOption(context, label, player, callback, args)
@@ -876,9 +1043,9 @@ local function addEntry(context, player, label, fullType, callback, args)
         -- Greyed with the reason rather than hidden, so it is clear the
         -- option exists and only the can opener is missing.
         option.notAvailable = true
-        tooltip.description = getText("UI_AA_open_notool")
+        tooltip.description = getText(family.text.notool)
     else
-        tooltip.description = getText("UI_AA_open_option_tt", doable, total)
+        tooltip.description = getText(family.text.optionTt, doable, total)
     end
     option.toolTip = tooltip
 end
@@ -894,10 +1061,15 @@ local function addOpenMenu(playerNum, context, items)
     -- The whole menu hangs off the clicked item being a sealed
     -- container. Nothing below this line runs on a right click
     -- anywhere else, which is what keeps the cost off every menu.
-    if not Open.isCandidate(item) then return end
+    local family = Open.familyOf(item)
+    if not family then return end
 
     if AA.isRunning(player, "open") then
-        AA.addOption(context, getText("UI_AA_open_stop"), player, Open.onStop)
+        -- Named after the job that is running, not after the thing that
+        -- happens to be under the cursor.
+        local running = AA.getTask(player)
+        local stop = running and running.family and running.family.text.stop
+        AA.addOption(context, getText(stop or "UI_AA_open_stop"), player, Open.onStop)
         return
     end
 
@@ -917,12 +1089,14 @@ local function addOpenMenu(playerNum, context, items)
 
     withCache(function()
         local fullType = item:getFullType()
-        addEntry(context, player,
-            getText("UI_AA_open_option", item:getDisplayName()),
+        addEntry(context, player, family,
+            getText(family.text.option, item:getDisplayName()),
             fullType, Open.onStartOne,
-            { fullType = fullType, label = item:getDisplayName(), destination = destination })
+            { fullType = fullType, label = item:getDisplayName(),
+              destination = destination, family = family.key })
 
-        addEntry(context, player, getText("UI_AA_open_option_all"), nil, Open.onStartAll)
+        addEntry(context, player, family, getText(family.text.optionAll),
+            nil, Open.onStartAll, { family = family.key })
     end)
 end
 

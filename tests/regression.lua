@@ -902,6 +902,103 @@ run("the health floor can be switched off without giving up stop-on-damage", fun
     assertEqual(AA.checkSafety(hurt), "UI_AA_stop_damage", "damage stop reason")
 end)
 
+local function openFixture()
+    resetGlobals()
+    ItemTag.PRESERVED_FOOD = "PreservedFood"
+    Events.OnFillInventoryObjectContextMenu = { Add = function() end }
+
+    loadFeature("Contents/mods/AutoAll/42/media/lua/client/AutoAll/AutoAll_Open.lua")
+    return AutoAll.Open
+end
+
+local function packaged(fullType, opening, doubleClick, tag)
+    return {
+        getFullType = function() return fullType end,
+        getOpeningRecipe = function() return opening end,
+        getDoubleClickRecipe = function() return doubleClick end,
+        hasTag = function(_, wanted) return tag ~= nil and wanted == tag end,
+    }
+end
+
+local function familyKey(Open, item)
+    local family = Open.familyOf(item)
+    return family and family.key or nil
+end
+
+run("a sealed tin still resolves to the food family", function()
+    local Open = openFixture()
+    local tin = packaged("Base.CannedBeans", "OpenCannedFood", nil, nil)
+    assertEqual(familyKey(Open, tin), "food", "family")
+end)
+
+run("a preserved jar resolves to the food family by tag", function()
+    local Open = openFixture()
+    local jar = packaged("Base.JarOfPickles", nil, nil, "PreservedFood")
+    assertEqual(familyKey(Open, jar), "food", "family")
+end)
+
+run("a mystery can with no opening recipe still resolves to food", function()
+    local Open = openFixture()
+    local can = packaged("Base.MysteryCan", nil, nil, nil)
+    assertEqual(familyKey(Open, can), "food", "family")
+end)
+
+run("an ammo carton resolves to the carton family", function()
+    local Open = openFixture()
+    local carton = packaged("Base.Bullets9mmCarton", nil, "OpenCarton12", nil)
+    assertEqual(familyKey(Open, carton), "carton", "family")
+end)
+
+run("a nails carton is in scope with the ammo cartons", function()
+    local Open = openFixture()
+    local carton = packaged("Base.NailsCarton", nil, "OpenCarton12", nil)
+    assertEqual(familyKey(Open, carton), "carton", "family")
+end)
+
+run("a pistol ammo box resolves to the box family", function()
+    local Open = openFixture()
+    local box = packaged("Base.Bullets9mmBox", nil, "OpenBoxOfBullets50", nil)
+    assertEqual(familyKey(Open, box), "box", "family")
+end)
+
+run("a rifle ammo box resolves to the box family", function()
+    local Open = openFixture()
+    local box = packaged("Base.556Box", nil, "OpenBoxOfBullets20", nil)
+    assertEqual(familyKey(Open, box), "box", "family")
+end)
+
+run("a shotgun shell box resolves to the box family", function()
+    local Open = openFixture()
+    local box = packaged("Base.ShotgunShellsBox", nil, "OpenBoxOfShotgunShells", nil)
+    assertEqual(familyKey(Open, box), "box", "family")
+end)
+
+run("a wine bottle is still left alone", function()
+    local Open = openFixture()
+    local wine = packaged("Base.WineBottle2", "OpenBottleOfWine", nil, nil)
+    assertEqual(familyKey(Open, wine), nil, "family")
+    assertEqual(Open.isCandidate(wine), false, "candidate")
+end)
+
+run("something with no opening recipe at all is not a candidate", function()
+    local Open = openFixture()
+    local plank = packaged("Base.Plank", nil, nil, nil)
+    assertEqual(Open.isCandidate(plank), false, "candidate")
+end)
+
+run("the carton and box jobs do not borrow the tin wording", function()
+    local Open = openFixture()
+    local carton = Open.familyOf(packaged("Base.308Carton", nil, "OpenCarton12", nil))
+    local box = Open.familyOf(packaged("Base.308Box", nil, "OpenBoxOfBullets20", nil))
+    local tin = Open.familyOf(packaged("Base.CannedBeans", "OpenCannedFood", nil, nil))
+
+    assertEqual(carton.text.stop, "UI_AA_unpack_stop", "carton stop text")
+    assertEqual(box.text.stop, "UI_AA_openbox_stop", "box stop text")
+    assertEqual(tin.text.stop, "UI_AA_open_stop", "tin stop text")
+    -- A carton needs no tool, so that dead end must not claim one is missing.
+    assertEqual(carton.text.notool, carton.text.blocked, "carton tool text")
+end)
+
 if failures > 0 then
     print(tostring(failures) .. " regression test(s) failed")
     os.exit(1)
