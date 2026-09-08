@@ -999,6 +999,151 @@ run("the carton and box jobs do not borrow the tin wording", function()
     assertEqual(carton.text.notool, carton.text.blocked, "carton tool text")
 end)
 
+-- Auto Repair: which fabric a hole gets sewn with.
+--
+-- The player mock deliberately has no getPerkLevel. Nothing in this path
+-- may ask about Tailoring level any more: gating on canFullyRestore, which
+-- is false below level 8 whatever you carry, is what stopped Auto Repair
+-- mending anything at all.
+local function fabricItem(id, itemType, fabricType)
+    return {
+        getID = function() return id end,
+        getType = function() return itemType end,
+        getFullType = function() return "Base." .. itemType end,
+        getDisplayName = function() return itemType end,
+        getFabricType = function() return fabricType end,
+        getContainer = function() return nil end,
+    }
+end
+
+local function holedGarment(id, fabricType, parts, container)
+    local holes = {}
+    for _, part in ipairs(parts) do holes[part] = 1 end
+
+    local covered = list(parts)
+    return {
+        className = "Clothing",
+        getID = function() return id end,
+        getType = function() return "Hoodie" end,
+        getDisplayName = function() return "Hoodie" end,
+        getContainer = function() return container end,
+        getFabricType = function() return fabricType end,
+        getCoveredParts = function() return covered end,
+        getPatchType = function() return nil end,
+        getVisual = function()
+            return { getHole = function(_, part) return holes[part] or 0 end }
+        end,
+    }
+end
+
+local function tailorFixture(options, items)
+    local getTask = resetGlobals(options)
+    local inv = inventory(items)
+    local repairs = {}
+
+    AutoAll.findItem = function(_, itemType)
+        for _, candidate in ipairs(items) do
+            if candidate.getType and candidate:getType() == itemType then return candidate end
+        end
+        return nil
+    end
+    AutoAll.findItemByTag = function() return nil end
+
+    ISInventoryPaneContextMenu.repairClothing = function(_, clothing, part, fabric)
+        repairs[#repairs + 1] = { clothing = clothing, part = part, fabric = fabric }
+    end
+
+    ISGarmentUI = { initialise = function() end, render = function() end }
+    UIFont = { Small = "Small" }
+    _G.isClient = function() return false end
+    _G.getTextManager = function()
+        return {
+            getFontHeight = function() return 12 end,
+            MeasureStringX = function() return 40 end,
+        }
+    end
+
+    local player = {
+        getInventory = function() return inv end,
+        isDead = function() return false end,
+    }
+
+    loadFeature("Contents/mods/AutoAll/42/media/lua/client/AutoAll/AutoAll_Tailoring.lua")
+    return AutoAll.Tailor, player, repairs, getTask
+end
+
+run("Auto Repair mends a cotton hoodie with the leather strips when that is all there is", function()
+    local items = {
+        fabricItem(10, "Needle"), fabricItem(11, "Thread"),
+        fabricItem(1, "LeatherStrips", "Leather"),
+        fabricItem(2, "LeatherStrips", "Leather"),
+    }
+    local Tailor, player, repairs, getTask = tailorFixture({}, items)
+
+    local hoodie = holedGarment(20, "Cotton", { "UpperTorso", "LowerTorso" }, player:getInventory())
+    items[#items + 1] = hoodie
+
+    Tailor.startRepair(player, hoodie)
+
+    assertEqual(#repairs, 2, "holes queued")
+    assertEqual(repairs[1].fabric:getType(), "LeatherStrips", "first patch material")
+    assertEqual(repairs[2].fabric:getType(), "LeatherStrips", "second patch material")
+    -- One instance cannot carry two repairs.
+    assertEqual(repairs[1].fabric:getID() ~= repairs[2].fabric:getID(), true, "distinct instances")
+    assertEqual(getTask().unmatched, 0, "unmatched holes")
+end)
+
+run("Auto Repair prefers the fabric the garment is made of", function()
+    local items = {
+        fabricItem(10, "Needle"), fabricItem(11, "Thread"),
+        fabricItem(12, "RippedSheets", "Cotton"),
+        fabricItem(13, "LeatherStrips", "Leather"),
+    }
+    local Tailor, player, repairs = tailorFixture({}, items)
+
+    local jacket = holedGarment(20, "Leather", { "UpperTorso" }, player:getInventory())
+    items[#items + 1] = jacket
+
+    Tailor.startRepair(player, jacket)
+
+    assertEqual(#repairs, 1, "holes queued")
+    assertEqual(repairs[1].fabric:getType(), "LeatherStrips", "patch material")
+end)
+
+run("Auto Repair falls back to the cheapest fabric carried", function()
+    local items = {
+        fabricItem(10, "Needle"), fabricItem(11, "Thread"),
+        fabricItem(12, "RippedSheets", "Cotton"),
+        fabricItem(13, "DenimStrips", "Denim"),
+    }
+    local Tailor, player = tailorFixture({}, items)
+    local jacket = holedGarment(20, "Leather", { "UpperTorso" }, player:getInventory())
+
+    assertEqual(Tailor.findFabricFor(player, jacket):getType(), "RippedSheets", "patch material")
+end)
+
+run("a pinned patch material is never substituted", function()
+    local items = {
+        fabricItem(10, "Needle"), fabricItem(11, "Thread"),
+        fabricItem(12, "RippedSheets", "Cotton"),
+    }
+    -- 3 = denim strips, and there are none.
+    local Tailor, player = tailorFixture({ tailorFabric = 3 }, items)
+    local hoodie = holedGarment(20, "Cotton", { "UpperTorso" }, player:getInventory())
+
+    assertEqual(Tailor.findFabricFor(player, hoodie), nil, "pinned material missing")
+end)
+
+run("a garment the game will not let you patch has no holes to mend", function()
+    local Tailor, player = tailorFixture({}, { fabricItem(10, "Needle"), fabricItem(11, "Thread") })
+
+    local hoodie = holedGarment(20, "Cotton", { "UpperTorso" }, player:getInventory())
+    local poncho = holedGarment(21, nil, { "UpperTorso" }, player:getInventory())
+
+    assertEqual(#Tailor.holedParts(hoodie), 1, "hoodie holes")
+    assertEqual(#Tailor.holedParts(poncho), 0, "poncho holes")
+end)
+
 if failures > 0 then
     print(tostring(failures) .. " regression test(s) failed")
     os.exit(1)

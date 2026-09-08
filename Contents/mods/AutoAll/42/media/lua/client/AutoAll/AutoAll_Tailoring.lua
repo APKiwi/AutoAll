@@ -94,10 +94,24 @@ function Tailor.findFabric(player)
     return nil
 end
 
+--- What an item is made of, as the game names it: "Cotton", "Denim",
+--- "Leather", or nil.
+---
+--- Asked of the garment and of the strips alike. getFabricType is an
+--- InventoryItem method, so both sides of a match answer it the same way,
+--- and a garment that answers nil cannot be patched at all - both vanilla
+--- patch menus return early on exactly this.
+local function fabricTypeOf(item)
+    if not item then return nil end
+    local ok, fabricType = pcall(function() return item:getFabricType() end)
+    if not ok then return nil end
+    return fabricType
+end
+
 function Tailor.canTrain(player, clothing)
     -- getFabricType and getCoveredParts live on Clothing, not on every item.
     if not clothing or not instanceof(clothing, "Clothing") then return false end
-    if not clothing:getFabricType() then return false end
+    if not fabricTypeOf(clothing) then return false end
     local parts = clothing:getCoveredParts()
     return parts ~= nil and parts:size() > 0
 end
@@ -425,6 +439,13 @@ local function holedParts(clothing)
     local out = {}
     if not instanceof(clothing, "Clothing") then return out end
 
+    -- A garment with no fabric type of its own cannot be patched by hand
+    -- either: both vanilla patch menus return early on it, so a poncho's
+    -- holes are not work this job is allowed to do. Left in, they would be
+    -- counted in the start message and sewn shut by a route the player has
+    -- no access to.
+    if not fabricTypeOf(clothing) then return out end
+
     local covered = clothing:getCoveredParts()
     local visual  = clothing:getVisual()
     if not covered or not visual then return out end
@@ -476,40 +497,50 @@ local function fetchable(player, item)
     return true
 end
 
---- The fabric to sew this particular hole with, or nil.
+--- The fabric to sew this garment's holes with, or nil.
 ---
---- Only one that closes the hole completely - leather wants leather - in
---- the order the fabric option asks for. Choosing the better patch is not
---- a rebalance: the game offers exactly these fabrics for exactly this
---- part, and tells us which one restores it, through canFullyRestore.
+--- Prefers the fabric the garment is made of - leather wants leather -
+--- and otherwise takes the cheapest one carried, in the order the fabric
+--- option asks for. The preference costs nothing at any skill level: a
+--- matching patch is the only one that can ever fully restore the part,
+--- and it is never the weaker patch of the two.
 ---
---- There is deliberately no fallback to whatever is in the pack. Sewing a
---- ripped sheet onto a leather jacket blocks the part: re-patching it with
---- leather later needs an unpick, and ISRemovePatch only returns the
---- fabric on a chance roll. A hole with no matching material is left open
---- and counted instead.
-function Tailor.findFabricFor(player, clothing, part)
+--- What decides "matching" is a fabric type comparison, and deliberately
+--- not canFullyRestore. That method reads
+--- `getPerkLevel(Tailoring) > 7 and fabric type equal and hole > 0`: a
+--- full restore test, not a can-this-be-patched test. Gating on it left
+--- every character below Tailoring 8 unable to mend anything at all, every
+--- hole coming back "needs a material you do not have" with the strips
+--- sitting in their inventory. Vanilla asks the same question only to word
+--- a tooltip and offers every fabric it can see either way, which is why
+--- Patch all Holes kept working while this did not. Reported by
+--- Barbiehunter.
+---
+--- The cost of the fallback is the one the audit named: a ripped sheet on
+--- a leather jacket blocks the part, and re-patching it with leather later
+--- needs an unpick that usually destroys the patch. That only happens when
+--- there is no leather to be had, which is exactly when a player patching
+--- by hand reaches for the sheet as well. An open hole is the worse of the
+--- two, and it is a bite hole.
+function Tailor.findFabricFor(player, clothing)
     local choice = AA.opt("tailorFabric") or 1
-
-    local order = {}
     if choice > 1 then
-        order[1] = FABRIC_TYPES[choice - 1]
-    else
-        for _, fabricType in ipairs(FABRIC_TYPES) do
-            table.insert(order, fabricType)
-        end
+        -- Pinned to one material: that one or nothing.
+        return AA.findItem(player, FABRIC_TYPES[choice - 1])
     end
 
-    for _, fabricType in ipairs(order) do
+    local wanted = fabricTypeOf(clothing)
+    local first  = nil
+
+    for _, fabricType in ipairs(FABRIC_TYPES) do
         local fabric = AA.findItem(player, fabricType)
         if fabric then
-            local ok, full = pcall(function()
-                return clothing:canFullyRestore(player, part, fabric)
-            end)
-            if ok and full then return fabric end
+            if wanted and fabricTypeOf(fabric) == wanted then return fabric end
+            if not first then first = fabric end
         end
     end
-    return nil
+
+    return first
 end
 
 --- Everything within reach with at least one open hole. Worn and carried
@@ -627,9 +658,17 @@ local function queueRepairs(task)
 
     for _, clothing in ipairs(task.garments) do
         if AA.holds(player, clothing) then
-            for _, part in ipairs(holedParts(clothing)) do
-                local chosen = Tailor.findFabricFor(player, clothing, part)
+            local parts = holedParts(clothing)
+            -- Asked once per garment rather than once per hole: the answer
+            -- is the same for every hole in it, and each lookup walks the
+            -- whole inventory.
+            local chosen = #parts > 0 and Tailor.findFabricFor(player, clothing) or nil
+
+            for _, part in ipairs(parts) do
                 if not chosen then
+                    -- Nothing the fabric option allows is in reach. Left
+                    -- open and named at the end rather than counted as a
+                    -- failure.
                     unmatched = unmatched + 1
                 else
                     -- findFabricFor decides the type. Which piece of it
@@ -663,8 +702,8 @@ local function queueReturns(task)
     end
 end
 
---- Why nothing could be queued: the material for these holes is simply not
---- one the player is carrying, or there is no thread and fabric at all.
+--- Why nothing could be queued: the fabric option is pinned to a material
+--- the player has run out of, or there is no thread and fabric at all.
 local function nothingToSewWith(task)
     if (task.unmatched or 0) > 0 then
         return getText("UI_AA_repair_nomatch", task.unmatched)
@@ -704,9 +743,9 @@ local function repairThink(task)
     local left   = remainingHoles(task.garments)
     local mended = math.max(0, task.holes - left)
 
-    -- Named on its own line: those holes did not fail, they need leather
-    -- (or denim, or sheets) the player is not carrying. Patching them with
-    -- whatever was to hand is what this stopped doing.
+    -- Named on its own line: those holes did not fail, the material the
+    -- fabric option is pinned to ran out while the job was running. On
+    -- "any" this stays at zero, because any fabric in reach will do.
     if (task.unmatched or 0) > 0 then
         AA.say(task, getText("UI_AA_repair_nomatch", task.unmatched), true)
     end
