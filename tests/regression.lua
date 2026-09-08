@@ -804,6 +804,104 @@ run("singleplayer skips an already read Mechanics magazine", function()
     assertEqual(Read.appraise(player, magazine), nil, "already read magazine appraisal")
 end)
 
+local function safetyFixture(options, moodleLevel, health)
+    resetGlobals(options)
+    Events.OnPlayerUpdate = { Add = function() end }
+    Events.OnPlayerDeath = { Add = function() end }
+    Events.OnKeyPressed = { Add = function() end }
+    Events.OnTick = { Add = function() end }
+
+    isClient = function() return false end
+    isServer = function() return false end
+    getTimestampMs = function() return 0 end
+    getGameSpeed = function() return 1 end
+    setGameSpeed = function() end
+    ISTimedActionQueue = { getTimedActionQueue = function() return nil end }
+    MoodleType = { HEAVY_LOAD = "heavy" }
+
+    loadFeature("Contents/mods/AutoAll/42/media/lua/client/AutoAll/AutoAll_Core.lua")
+
+    local player = {
+        getPlayerNum = function() return 0 end,
+        isDead = function() return false end,
+        getBodyDamage = function()
+            return { getOverallBodyHealth = function() return health or 60 end }
+        end,
+        getMoodles = function()
+            return { getMoodleLevel = function() return moodleLevel or 0 end }
+        end,
+        getStats = function()
+            return {
+                getNumVisibleZombies = function() return 0 end,
+                getNumChasingZombies = function() return 0 end,
+                getNumVeryCloseZombies = function() return 0 end,
+            }
+        end,
+        -- Overloaded on the exact test, which is what the old rule read.
+        getInventoryWeight = function() return 20 end,
+        getMaxWeight = function() return 10 end,
+        pressedMovement = function() return false end,
+        isPlayerMoving = function() return false end,
+        isAiming = function() return false end,
+        pressedAim = function() return false end,
+        pressedCancelAction = function() return false end,
+    }
+
+    return AutoAll, player
+end
+
+local SAFE = { stopDamage = true, healthFloor = 70 }
+
+run("Auto Cook is not stopped for being hurt and overloaded", function()
+    local AA, player = safetyFixture(SAFE, 4, 60)
+    local task = { player = player, lastHealth = 60, startedAt = 0 }
+    assertEqual(AA.checkSafety(task), nil, "safety stop reason")
+end)
+
+run("Auto Cook still stops when health is actually dropping", function()
+    local AA, player = safetyFixture(SAFE, 4, 60)
+    local task = { player = player, lastHealth = 100, startedAt = 0 }
+    assertEqual(AA.checkSafety(task), "UI_AA_stop_damage", "safety stop reason")
+end)
+
+run("Auto Medicine still treats a wound that is bleeding", function()
+    local AA, player = safetyFixture(SAFE, 4, 60)
+    local task = {
+        player = player,
+        lastHealth = 100,
+        startedAt = 0,
+        expectedDamage = function() return true end,
+    }
+    assertEqual(AA.checkSafety(task), nil, "safety stop reason")
+end)
+
+run("Auto Mechanics stops below the health floor when heavily loaded", function()
+    local AA, player = safetyFixture(SAFE, 4, 60)
+    local task = { player = player, lastHealth = 60, startedAt = 0, ignoreDamage = true }
+    assertEqual(AA.checkSafety(task), "UI_AA_stop_hurt", "safety stop reason")
+end)
+
+run("Auto Mechanics keeps working while heavily loaded and healthy", function()
+    local AA, player = safetyFixture(SAFE, 4, 90)
+    local task = { player = player, lastHealth = 90, startedAt = 0, ignoreDamage = true }
+    assertEqual(AA.checkSafety(task), nil, "safety stop reason")
+end)
+
+run("Auto Mechanics keeps working while hurt and barely over the limit", function()
+    local AA, player = safetyFixture(SAFE, 1, 60)
+    local task = { player = player, lastHealth = 60, startedAt = 0, ignoreDamage = true }
+    assertEqual(AA.checkSafety(task), nil, "safety stop reason")
+end)
+
+run("the health floor can be switched off without giving up stop-on-damage", function()
+    local AA, player = safetyFixture({ stopDamage = true, healthFloor = 0 }, 4, 60)
+    local floored = { player = player, lastHealth = 60, startedAt = 0, ignoreDamage = true }
+    assertEqual(AA.checkSafety(floored), nil, "health floor stop reason")
+
+    local hurt = { player = player, lastHealth = 100, startedAt = 0 }
+    assertEqual(AA.checkSafety(hurt), "UI_AA_stop_damage", "damage stop reason")
+end)
+
 if failures > 0 then
     print(tostring(failures) .. " regression test(s) failed")
     os.exit(1)

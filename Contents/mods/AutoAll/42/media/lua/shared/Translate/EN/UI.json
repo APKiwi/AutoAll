@@ -254,7 +254,7 @@
     "UI_AA_stop_stuck": "Stopped: an action would not finish.",
     "UI_AA_opt_mechFailSound": "Sound when a part fails",
     "UI_AA_opt_mechFailSound_tt": "Single player only. The base game plays this sound on a failed part through the server, so it is silent when there is no server. This plays it for you. It is heard, not carried: it does not draw zombies the way the multiplayer one does.",
-    "UI_AA_stop_hurt": "Stopped: too hurt to keep carrying this.",
+    "UI_AA_stop_hurt": "Stopped: too hurt to keep carrying this. The health floor is in Mod Options.",
     "UI_AA_opt_titleModules": "Automations",
     "UI_AA_opt_modules_desc": "Turn off anything you do not use. Its menu entries disappear completely, so the right click menu only shows what you actually want.",
     "UI_AA_opt_modules_tt": "On by default. A server can also switch this off for everyone in its sandbox options.",
@@ -509,8 +509,8 @@
     "UI_MM_reading": "Reading %1.",
     "UI_AA_opt_cookReach": "How far to look for ingredients, in tiles",
     "UI_AA_opt_cookReach_tt": "Tiles to search for cupboards, counters and fridges when cooking. Walls and locked crates still stop the search at any setting, so this only widens where it can already reach. Higher settings make right clicking a pot slower, because the sweep grows with the square of the distance.",
-    "UI_AA_opt_healthFloor": "Stop below this health when overloaded",
-    "UI_AA_opt_healthFloor_tt": "A job stops when your health is below this AND you are over your carry limit. Both, never one on its own, which is why it can fire on a character who feels fine. Needs “Stop when taking damage” ticked. Set to 0 to switch this rule off and keep the rest of the damage stopping.",
+    "UI_AA_opt_healthFloor": "Auto Mechanics: stop below this health when heavily loaded",
+    "UI_AA_opt_healthFloor_tt": "Auto Mechanics is the one job that keeps working while you take damage, because a mechanic carrying a tyre and four tools strains constantly and that is the job rather than a wound. This is the bottom under that: below this health AND carrying a heavy load, it stops anyway. No other job is ever stopped for weight. Needs “Stop when taking damage” ticked. Set to 0 to switch this rule off.",
     "UI_MM_opt_stopInjury": "Stop for untreated injuries",
     "UI_MM_opt_stopInjury_tt": "Stops for active bleeding, unbandaged deep wounds and unsplinted arm or leg fractures. Splinted fractures, bandaged wounds and fractures that cannot be splinted do not stop training."
 }

@@ -584,54 +584,62 @@ function AA.isOverloaded(player)
     return ok and over == true
 end
 
---- True when the health this task is losing is the weight it is carrying,
---- and the task said in advance that it expects to be carrying it.
+--- True when the character is carrying a load the body is complaining
+--- about, rather than merely a gram over its rating.
 ---
---- The health check exists to catch a zombie chewing on you. Carrying too
---- much also costs health, through muscle strain, and that is a problem
---- for exactly one job: a mechanic working round a car is holding a tyre,
---- a brake, a screwdriver, a wrench, a lug wrench and a jack, and there is
---- no strength or fitness level at which that is light. Worse, the drift
---- is slow in game time but the safety check runs on real time, so at 5x
---- fast forward a tick covers enough strain to look like a wound.
+--- isOverloaded is the exact test - one gram past getMaxWeight is true -
+--- and that is right for shedding weight, which is what Auto Mechanics
+--- uses it for. It is wrong for a safety stop. Being slightly over is a
+--- speed penalty in vanilla rather than a danger, and treating it as one
+--- is the whole of the report below. HEAVY_LOAD is the game's own opinion
+--- of when a load has become a problem, and level 3 of 4 is where it
+--- starts doing real harm. Auto Exercise has tested it this way since it
+--- shipped.
+function AA.isHeavilyLoaded(player)
+    local ok, heavy = pcall(function()
+        return player:getMoodles():getMoodleLevel(MoodleType.HEAVY_LOAD) > 2
+    end)
+    -- No moodle, no stop. This is a backstop under a job that already
+    -- sheds weight on its own, so failing open costs less than a job that
+    -- refuses to run because an engine call moved.
+    return ok and heavy == true
+end
+
+--- The health below which a task that waives the damage stop stops anyway.
 ---
---- Zombies are still covered: stopZombie is a separate check, it runs
---- first, and it is on by default.
---- Below this the body is genuinely in trouble, and allowHeavy's waiver
---- stops applying: being heavy is not a reason to stop, being heavy and
---- hurt is. It is not a waiver of the player's own settings though - see
---- checkSafety, where the floor sits inside the same gates as the drop
---- check rather than above them.
+--- The floor exists for one job. Auto Mechanics sets ignoreDamage because
+--- a mechanic carrying a tyre, a brake and four tools is doing the job
+--- rather than bleeding, and the muscle strain that costs kept being read
+--- as a wound. Waiving the damage stop outright is how a mechanics run
+--- once carried a character at three times their limit until it killed
+--- them, so the waiver needs a bottom, and this is it.
 ---
---- getOverallBodyHealth() is 0-100. Muscle strain from an overloaded
---- inventory does real, accumulating damage, and allowHeavy used to waive
---- the damage stop outright - which is how a mechanics run carried a
---- character at three times their limit until it killed them. Being heavy
---- is still not a reason to stop; being heavy and hurt is.
---- The 70 this was hardcoded at is now only the default.
+--- It used to be applied to every job EXCEPT that one. The gate above it
+--- read `not task.ignoreDamage`, and the only task that waived the damage
+--- stop set ignoreDamage, so the branch could not be reached for Mechanics
+--- and fired for Cook, Read, Clean, Rip and the rest, which waive nothing
+--- and already stop on damage like everything else. It also tested two
+--- static readings, so nothing had to be getting worse:
 ---
---- > *Kyo:* "Whenever I try to do anything with auto all, it tells me
---- > I'm too hurt and stops immediately. The character is fully capable
---- > of carrying and doing all the steps."
+--- > *Kyo:* "it stops the second I go over inventory weight, but that
+--- > doesn't make sense to me, because being slightly overloaded is
+--- > absolutely harmless [...] I literally had all ingredients in my
+--- > inventory, and it would just refuse to operate, given the weight."
 ---
---- A character who lives hurt and overloaded hits this on the first
---- think of every job, and the only escape was unticking stop-on-damage,
---- which throws away every damage stop to get out of one. The floor is a
---- slider now, and 0 switches this rule off on its own.
+--- Right on both counts. Muscle strain is body part damage, so it counts
+--- in getOverallBodyHealth, so a character who plays overloaded lives
+--- under the floor and was locked out of every automation permanently. The
+--- floor now bounds the waiver it was written for and nothing else.
+---
+--- getOverallBodyHealth() is 0-100. The 70 this was hardcoded at is now
+--- only the default, and 0 switches the rule off without giving up
+--- stop-on-damage.
 local HEALTH_FLOOR_DEFAULT = 70
 
---- Read once per safety check and passed down, so the two tests below
---- cannot disagree if the player moves the slider mid-job.
 local function healthFloor()
     local value = AA.opt("healthFloor")
     if type(value) == "number" then return value end
     return HEALTH_FLOOR_DEFAULT
-end
-
-local function carryingItOff(task, health, floor)
-    if task.allowHeavy ~= true then return false end
-    if not AA.isOverloaded(task.player) then return false end
-    return health >= floor
 end
 
 --- True when this task said in advance that the health it is watching go
@@ -748,39 +756,31 @@ function AA.checkSafety(task)
     task.lastHealth = health
     local floor = healthFloor()
 
-    -- ignoreDamage tasks never stop for health at all. Asked for
-    -- explicitly, twice, for Auto Mechanics: a mechanic is carrying a
-    -- tyre, a brake and four tools, that is the job rather than a danger
-    -- signal, and the muscle strain it costs kept reading as a wound.
+    -- The floor under a task that waives the damage stop.
     --
-    -- What keeps a character alive is no longer this check. It is that the
-    -- mechanics job now sheds weight the moment it is overloaded - a part
-    -- that cannot go back on this turn goes on the ground - so the strain
-    -- never builds. Zombies, movement and ESC still stop everything.
+    -- ignoreDamage is Auto Mechanics, which asked for the waiver twice. A
+    -- mechanic carrying a tyre, a brake and four tools is doing the job
+    -- rather than bleeding. What keeps that character alive day to day is
+    -- that the job sheds weight the moment it is overloaded - a part that
+    -- cannot go back on this turn goes on the ground - so the strain never
+    -- builds. This catches the day it does.
     --
-    -- The health floor sits INSIDE the stopDamage gate rather than above
-    -- it. It used to be its own branch on absolute health, which made it
-    -- the one health stop that ignored the player unticking "stop when
-    -- taking damage" and the one that never asked the task whether the
-    -- damage was the thing it was started to deal with. A character at 62
-    -- health with a deep bleeding wound, overloaded after looting, could
-    -- not run Auto Medicine at all: the first think stopped the job before
-    -- a single bandage went on. Same gates for both, so the answer to
-    -- "why did it not stop" and "why did it stop" is one rule.
-    --
-    -- ignoreDamage is unchanged and still waives the lot, which is what
-    -- Auto Mechanics asked for.
+    -- It sits inside the stopDamage gate rather than above it, so a player
+    -- who unticks "stop when taking damage" is not left holding one health
+    -- stop they cannot switch off. See HEALTH_FLOOR_DEFAULT for why this
+    -- used to fire on every job except the one it was written for.
+    if task.ignoreDamage and AA.opt("stopDamage")
+            and health < floor and AA.isHeavilyLoaded(player) then
+        return getText("UI_AA_stop_hurt")
+    end
+
+    -- The ordinary damage stop, which measures a drop rather than a level.
+    -- expectedDamage is the task saying that the health it is watching go
+    -- down is the thing it was started to deal with, which is what lets
+    -- Auto Medicine treat a bleeding wound at all.
     if not task.ignoreDamage and AA.opt("stopDamage")
-            and not carryingItOff(task, health, floor)
-            and not expectedDamage(task) then
-        -- carryingItOff is false below the floor by construction, so
-        -- allowHeavy still buys nothing down here.
-        if health < floor and AA.isOverloaded(player) then
-            return getText("UI_AA_stop_hurt")
-        end
-        if damaged then
-            return getText("UI_AA_stop_damage")
-        end
+            and not expectedDamage(task) and damaged then
+        return getText("UI_AA_stop_damage")
     end
 
     if now() - (task.startedAt or 0) > START_GRACE then

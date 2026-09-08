@@ -1793,16 +1793,15 @@ function Mech.start(player, vehicle)
         stallTimeout = 45000,
         -- The character walks itself around the car between parts.
         allowMove = true,
-        -- And it will be over its carry limit for most of the job - see
-        -- carryingItOff in AutoAll_Core. Being heavy is not a reason to
-        -- stop; being bitten still is.
-        allowHeavy = true,
-        -- Health never stops this job. Requested outright: a mechanic
+        -- Ordinary damage never stops this job, and it will be over its
+        -- carry limit for most of the job. Requested outright: a mechanic
         -- carrying a tyre, a brake and four tools is doing the job, and
         -- the muscle strain that costs kept being read as a wound. Safety
-        -- now rests on shedding weight instead - candidates() drops a part
+        -- rests on shedding weight instead - candidates() drops a part
         -- that cannot go back on as soon as the character is overloaded -
-        -- and on the zombie, movement and ESC stops, which are untouched.
+        -- on the zombie, movement and ESC stops, which are untouched, and
+        -- on the health floor in AutoAll_Core, which is the bottom under
+        -- this waiver and applies to no other job.
         ignoreDamage = true,
         startText = getText("UI_AA_mech_started"),
     }
