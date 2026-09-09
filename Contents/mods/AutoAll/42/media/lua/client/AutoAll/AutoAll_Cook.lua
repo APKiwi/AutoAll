@@ -297,6 +297,9 @@ end
 ---------------------------------------------------------------------
 -- water
 --
+-- > *AnotherGuy:* "can you make it so that you can auto cook from an
+-- > empty pot? auto fill with water?"
+--
 -- An evolved recipe that wants water refuses an empty pot outright, so
 -- Soup and Stew are not on the menu at all until the pot is filled.
 -- Three vanilla methods, read off the bytecode, say why:

@@ -40,7 +40,7 @@ MM.defaults = {
     -- reading
     -- Off by default, same reason autoEat above ships off: it changes
     -- what the character does between sets, and nobody should have that
-    -- change under them on an update.
+    -- change under them on an update. Asked for by Ayako-Chan.
     autoRead      = false,  -- read a useful book from the inventory while resting
     eatAt         = 2,      -- hunger moodle level that triggers a meal (1-4)
 

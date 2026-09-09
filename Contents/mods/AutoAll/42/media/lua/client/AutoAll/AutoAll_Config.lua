@@ -128,10 +128,11 @@ AA.defaults = {
     -- watching tapes
     vhsNearby          = true,  -- also take tapes from the containers in reach
     -- Off by default: it changes which tapes get picked up, and nobody
-    -- should have that change under them on an update. A tape's XP is
-    -- multiplied by the skill book's own multiplier, so a tape watched
-    -- before the book is worth a third to a sixteenth of what it would
-    -- have been - and the lines are spent either way.
+    -- should have that change under them on an update. Asked for by
+    -- lolkatiekat. A tape's XP is multiplied by the skill book's own
+    -- multiplier, so a tape watched before the book is worth a third to a
+    -- sixteenth of what it would have been - and the lines are spent
+    -- either way.
     vhsBooksOnly       = false, -- only tapes whose skill book is already paying a multiplier
     vhsBookXpThreshold = 100,   -- percentage of the current book's full multiplier required
     vhsReturnItems     = true,  -- put each watched tape back where it came from
@@ -162,7 +163,7 @@ AA.defaults = {
     -- On by default. A fracture is unambiguously something the player
     -- wants dealt with, the splint is what deals with it, and the vanilla
     -- rules about which parts can be splinted are followed exactly.
-    -- Turn it off to keep your planks.
+    -- Asked for by Barbiehunter. Turn it off to keep your planks.
     medSplint          = true,
 
     -- mechanics
