@@ -78,12 +78,28 @@ end
 --- so clearing only the flag left the box drawn ticked. The player pressed
 --- OK, a set started, this gate killed it a tick later, and the box was
 --- still ticked ready to do it again.
+---
+--- Kept as cheap as it can be, because the only caller runs from
+--- OnPlayerUpdate and therefore pays this on every frame. A closed panel and
+--- an already unticked box are both resting states rather than events, so
+--- both leave before doing any work, and the state is read off the widget
+--- instead of being written over blind: ISTickBox:isSelected(index) reads the
+--- same self.selected table that setSelected(index, value) writes, so asking
+--- costs a table lookup and telling costs nothing when there is nothing to
+--- tell. Both calls go through pcall because ISTickBox errors on an index it
+--- does not have, and the box this file is holding down was built elsewhere.
 local function untickWidget(player)
     local panels = ISFitnessUI and ISFitnessUI.instance
     if type(panels) ~= "table" then return end
     local panel = panels[player:getPlayerNum() + 1]
     if not panel or not panel.mmAuto then return end
-    pcall(function() panel.mmAuto:setSelected(1, false) end)
+
+    local box = panel.mmAuto
+    if type(box.isSelected) == "function" then
+        local ok, ticked = pcall(box.isSelected, box, 1)
+        if ok and not ticked then return end
+    end
+    pcall(box.setSelected, box, 1, false)
 end
 
 --- Whatever loaded, hold it to the switch.
@@ -100,10 +116,6 @@ local function enforce(player)
     end
     untickWidget(player)
 
-    -- Said out loud. Killing a set the player asked for without a word looks
-    -- like the mod failing rather than the switch working.
-    local reason = getText("UI_AA_exercise_off")
-
     local states = MuscleManager.states
     if type(states) == "table" then
         local state = states[player:getPlayerNum()]
@@ -118,7 +130,13 @@ local function enforce(player)
         end
 
         if type(MuscleManager.stop) == "function" then
-            pcall(MuscleManager.stop, player, reason, true)
+            -- Said out loud. Killing a set the player asked for without a
+            -- word looks like the mod failing rather than the switch
+            -- working. Translated here rather than at the top of the
+            -- function because getText is a call into Java and this runs
+            -- from OnPlayerUpdate: the switch being off is a resting state,
+            -- and only the stop that actually happens should pay for it.
+            pcall(MuscleManager.stop, player, getText("UI_AA_exercise_off"), true)
         else
             -- Nothing to call. Take the state away, which is what every
             -- decision in that loop is keyed on.
@@ -143,7 +161,10 @@ local function enforce(player)
         print("[AutoAll] exercise is switched off and MuscleManager.states is not a table"
                 .. " - stopping any loop blind, since there is no state to read.")
     end
-    pcall(MuscleManager.stop, player, reason, true)
+    -- Translated at the call for the same reason as above: this line is
+    -- reached at most once every BLIND_STOP_EVERY milliseconds, not once a
+    -- frame.
+    pcall(MuscleManager.stop, player, getText("UI_AA_exercise_off"), true)
 end
 
 Events.OnPlayerUpdate.Add(enforce)
