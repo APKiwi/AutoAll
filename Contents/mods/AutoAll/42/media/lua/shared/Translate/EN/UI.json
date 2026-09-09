@@ -476,7 +476,6 @@
     "UI_AA_open_notool": "No can opener or sharp knife within reach.",
     "UI_AA_open_blocked": "Found things to open, but none of them can be right now. Try again in a moment.",
     "UI_AA_open_stop": "Stop Opening",
-
     "UI_AA_unpack_option": "Unpack Every %1",
     "UI_AA_unpack_option_all": "Unpack Every Carton Within Reach",
     "UI_AA_unpack_option_tt": "Unpacks %1 of the %2 within reach into boxes of twelve, one after another. Any sitting in a container are fetched, and the boxes go back where the carton came from.",
@@ -521,8 +520,8 @@
     "UI_AA_opt_medSplint_tt": "Uses a splint, or a plank and a ripped sheet, on a broken limb before dressing it - the same rules the Health window follows. Never the head or the torso.",
     "UI_AA_opt_vhsBooksOnly": "Only tapes with enough skill-book XP bonus",
     "UI_AA_opt_vhsBooksOnly_tt": "A tape’s XP is multiplied by the skill book’s bonus, and its lines are spent whether or not the book bonus is ready. Turn this on to use the minimum bonus below. Skills with no book in the game are always watched.",
-    "UI_AA_opt_vhsBookXpThreshold": "Minimum skill-book bonus (%)",
-    "UI_AA_opt_vhsBookXpThreshold_tt": "When the book gate is on, a skill tape is watched only when its active book bonus reaches this percentage of the current book’s full XP multiplier. 100% requires the whole book. Skills with no skill book and tapes that teach an unknown recipe are still watched.",
+    "UI_AA_opt_vhsBookXpThreshold": "Minimum skill-book bonus (%%)",
+    "UI_AA_opt_vhsBookXpThreshold_tt": "When the book gate is on, a skill tape is watched only when its active book bonus reaches this percentage of the current book’s full XP multiplier. 100%% requires the whole book. Skills with no skill book and tapes that teach an unknown recipe are still watched.",
     "UI_AA_vhs_nobook": "No tape within reach meets the skill-book XP threshold.",
     "UI_MM_opt_titleRead": "Reading",
     "UI_MM_opt_autoRead": "Read while resting",
