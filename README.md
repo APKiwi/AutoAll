@@ -48,3 +48,13 @@ game sees mod id `AutoAll` twice.
 Run the automated Lua regression checks with `sh tests/run.sh`. These use
 game API stubs, so worn clothing visuals and multiplayer behavior still need
 an in-game check.
+The repair sync integration test also loads the installed vanilla Lua action
+when available. Set `PZ_JAVA_DIR` to the game's `Java` directory on other
+machines. Its Java mutation and network endpoints remain stubbed.
+
+The worn-clothing repair sync fix requires Auto All in the host/server's
+enabled mod list. It sends the server's repaired garment state after a full
+repair, including repairs started from the normal clothing menu. The
+automations still work with a client-only installation, but that installation
+cannot correct the server's missing update. Restart the host/server after
+updating the mod.
