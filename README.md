@@ -44,3 +44,7 @@ it directly.
 The mod ships as a Steam Workshop item, so testing a change means running the
 staged copy as a local mod. Unsubscribe from the Workshop item first, or the
 game sees mod id `AutoAll` twice.
+
+Run the automated Lua regression checks with `sh tests/run.sh`. These use
+game API stubs, so worn clothing visuals and multiplayer behavior still need
+an in-game check.

@@ -165,6 +165,7 @@ AA.defaults = {
     -- rules about which parts can be splinted are followed exactly.
     -- Asked for by Barbiehunter. Turn it off to keep your planks.
     medSplint          = true,
+    medPoultices       = false, -- optional treatment, skipped while bleeding
 
     -- mechanics
     -- The game's own success chance, as a percentage. Parts below this are
@@ -475,6 +476,7 @@ local function createModOptions()
     options:addTitle("UI_AA_opt_titleMed")
     options:addTickBox("medDisinfect", "UI_AA_opt_medDisinfect", d.medDisinfect, "UI_AA_opt_medDisinfect_tt")
     options:addTickBox("medSplint", "UI_AA_opt_medSplint", d.medSplint, "UI_AA_opt_medSplint_tt")
+    options:addTickBox("medPoultices", "UI_AA_opt_medPoultices", d.medPoultices, "UI_AA_opt_medPoultices_tt")
 
     options:addTitle("UI_AA_opt_titleSafety")
     options:addTickBox("stopOnMove", "UI_AA_opt_stopOnMove", d.stopOnMove, "UI_AA_opt_stopOnMove_tt")

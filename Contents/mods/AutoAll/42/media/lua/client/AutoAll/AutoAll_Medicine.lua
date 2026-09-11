@@ -263,6 +263,17 @@ local function sheetScore(item)
     return nil
 end
 
+--- HApplyPoultice:checkItem. Each vanilla poultice handler accepts one
+--- exact item type.
+local function poulticeScore(item, itemType)
+    local ok, score = pcall(function()
+        if item:getType() == itemType then return 1 end
+        return nil
+    end)
+    if ok then return score end
+    return nil
+end
+
 --- HSplint's own gate, verbatim: the three parts vanilla refuses from
 --- addToMenu, then its injured/stitched/already-splinted test and the
 --- fracture itself.
@@ -347,6 +358,50 @@ local function isInjured(part)
                 and not part:bandaged()
     end)
     return ok and result == true
+end
+
+--- HApplyPoultice's gate, shared by all three vanilla handlers.
+local function hasNoPoultice(part)
+    local ok, allowed = pcall(function()
+        return part:getPlantainFactor() == 0
+                and part:getComfreyFactor() == 0
+                and part:getGarlicFactor() == 0
+    end)
+    return ok and allowed == true
+end
+
+--- Poultices take time while an open wound keeps draining health. Dressing
+--- every active bleed comes first, even when the bleed is on another part.
+local function hasUnbandagedBleeding(player)
+    local bleeding = false
+    local ok = pcall(function()
+        local parts = player:getBodyDamage():getBodyParts()
+        for i = 0, parts:size() - 1 do
+            local part = parts:get(i)
+            if part and part:bleeding() and not part:bandaged() then
+                bleeding = true
+                return
+            end
+        end
+    end)
+    if not ok then return true end
+    return bleeding
+end
+
+local function poulticeMatches(kind, part)
+    local ok, matches = pcall(function()
+        if kind == "comfrey" then return part:getFractureTime() > 0 end
+        if kind == "garlic" then return part:isInfectedWound() end
+        if kind == "plantain" then
+            return part:scratched() or part:isCut() or part:deepWounded()
+        end
+        return false
+    end)
+    return ok and matches == true
+end
+
+local function isPoulticeKind(kind)
+    return kind == "comfrey" or kind == "garlic" or kind == "plantain"
 end
 
 --- Does this part still want something this job knows how to do?
@@ -556,6 +611,26 @@ local function planNextStep(task)
                 end
             end
 
+            -- These are optional and always stay behind urgent wound care.
+            -- Each choice targets the injury its vanilla effect helps, and
+            -- HApplyPoultice's one-active-poultice gate is kept intact.
+            if AA.opt("medPoultices") and not hasUnbandagedBleeding(player)
+                    and hasNoPoultice(part) then
+                local choices = {
+                    { kind = "comfrey", type = "ComfreyCataplasm" },
+                    { kind = "garlic", type = "WildGarlicCataplasm" },
+                    { kind = "plantain", type = "PlantainCataplasm" },
+                }
+                for _, choice in ipairs(choices) do
+                    if poulticeMatches(choice.kind, part) then
+                        local item = bestOf(supplies, function(candidate)
+                            return poulticeScore(candidate, choice.type)
+                        end)
+                        if item then return plan(choice.kind, entry, item) end
+                    end
+                end
+            end
+
             if not part:bandaged() then
                 if bandage then
                     return plan("bandage", entry, bandage)
@@ -601,6 +676,16 @@ local function runPlan(task)
         return true
     end
 
+    if isPoulticeKind(plan.kind)
+            and (not AA.opt("medPoultices") or hasUnbandagedBleeding(player)
+                    or not isInjured(part)
+                    or not hasNoPoultice(part) or not poulticeMatches(plan.kind, part)) then
+        -- Recheck after the transfer. A new bleed must replace this optional
+        -- step with dressing work, not wait behind a poultice planned earlier.
+        task.plan = nil
+        return true
+    end
+
     if plan.kind == "bullet" then
         ISTimedActionQueue.add(ISRemoveBullet:new(doctor, patient, part))
     elseif plan.kind == "glass" then
@@ -623,6 +708,18 @@ local function runPlan(task)
         -- then the plank. A ready-made Splint goes in the plank slot
         -- with no sheet at all, which is what vanilla does too.
         ISTimedActionQueue.add(ISSplint:new(doctor, patient, plan.item2, plan.item, part, true))
+    elseif plan.kind == "comfrey" then
+        local action = ISComfreyCataplasm:new(doctor, patient, plan.item, part)
+        ISTimedActionQueue.add(action)
+        task.poulticeAction = action
+    elseif plan.kind == "garlic" then
+        local action = ISGarlicCataplasm:new(doctor, patient, plan.item, part)
+        ISTimedActionQueue.add(action)
+        task.poulticeAction = action
+    elseif plan.kind == "plantain" then
+        local action = ISPlantainCataplasm:new(doctor, patient, plan.item, part)
+        ISTimedActionQueue.add(action)
+        task.poulticeAction = action
     elseif plan.kind == "bandage" then
         ISTimedActionQueue.add(ISApplyBandage:new(doctor, patient, plan.item, part, true))
     end
@@ -690,6 +787,9 @@ local function bodyState(player)
                 -- Or a successful splint would look like no progress and
                 -- the job would give up after its no-progress rounds.
                 (p:getSplintFactor() or 0) > 0 and 1 or 0,
+                (p:getPlantainFactor() or 0) > 0 and 1 or 0,
+                (p:getComfreyFactor() or 0) > 0 and 1 or 0,
+                (p:getGarlicFactor() or 0) > 0 and 1 or 0,
             }, "")
         end
     end)
@@ -761,6 +861,23 @@ end
 
 local function think(task)
     local player = task.player
+
+    -- A bleed can begin after the vanilla action has started. Cataplasm
+    -- validity only checks movement and item presence, so watch the exact
+    -- action this task queued and cancel it through vanilla's own path.
+    -- The medicine task stays alive and replans into dressing work.
+    if task.poulticeAction then
+        if AA.currentAction(player) == task.poulticeAction then
+            if hasUnbandagedBleeding(player) then
+                local action = task.poulticeAction
+                local stopped = pcall(function() action:forceStop() end)
+                if stopped then task.poulticeAction = nil end
+                return
+            end
+        else
+            task.poulticeAction = nil
+        end
+    end
 
     if AA.isQueueBusy(player) then return end
 
@@ -839,6 +956,9 @@ function Medicine.start(player)
         -- A queued disinfect, promoted into disinfected once its dose is
         -- confirmed spent.
         disinfectPending = nil,
+        -- The optional vanilla action currently at the queue head. Retained
+        -- only so a new bleed can cancel that one action without ending care.
+        poulticeAction = nil,
         -- Parts left alone because a step they need has no item, and parts
         -- with nothing but a dirty bandage. Both are reported at the end so
         -- the player knows to deal with them by hand.

@@ -132,6 +132,30 @@ local function doubleClickRecipeOf(item)
     return item:getDoubleClickRecipe()
 end
 
+local AMMO_BATCHES = {
+    ["Base.Bullets44"]     = 20,
+    ["Base.308Bullets"]    = 20,
+    ["Base.ShotgunShells"] = 25,
+    ["Base.556Bullets"]    = 20,
+    ["Base.Bullets9mm"]    = 50,
+    ["Base.Bullets45"]     = 50,
+    ["Base.Bullets38"]     = 50,
+    ["Base.Bullets357"]    = 50,
+    ["Base.3030Bullets"]   = 20,
+}
+
+local AMMO_BOX_BATCHES = {
+    ["Base.Bullets44Box"]     = 12,
+    ["Base.308Box"]           = 12,
+    ["Base.ShotgunShellsBox"] = 12,
+    ["Base.556Box"]           = 12,
+    ["Base.Bullets9mmBox"]    = 12,
+    ["Base.Bullets45Box"]     = 12,
+    ["Base.Bullets38Box"]     = 12,
+    ["Base.Bullets357Box"]    = 12,
+    ["Base.3030Box"]          = 12,
+}
+
 local FAMILIES = {
     -- The sealed tins and preserved jars this module started as. Ten
     -- recipe names, all category = Cooking, from recipes_cannedFood.txt
@@ -235,13 +259,52 @@ local FAMILIES = {
             stop      = "UI_AA_openbox_stop",
         },
     },
+
+    packAmmo = {
+        key        = "packAmmo",
+        recipes    = { "place_ammo_in_box" },
+        batchSizes = AMMO_BATCHES,
+        text = {
+            option    = "UI_AA_packammo_option_all",
+            optionAll = "UI_AA_packammo_option_all",
+            labelAll  = "UI_AA_packammo_label_all",
+            optionTt  = "UI_AA_packammo_option_tt",
+            started   = "UI_AA_pack_started",
+            working   = "UI_AA_pack_working",
+            done      = "UI_AA_pack_done",
+            nothing   = "UI_AA_pack_nothing",
+            notool    = "UI_AA_pack_blocked",
+            blocked   = "UI_AA_pack_blocked",
+            stop      = "UI_AA_pack_stop",
+        },
+    },
+
+    packBoxes = {
+        key        = "packBoxes",
+        recipes    = { "Place12BoxesInCarton" },
+        batchSizes = AMMO_BOX_BATCHES,
+        text = {
+            option    = "UI_AA_packboxes_option_all",
+            optionAll = "UI_AA_packboxes_option_all",
+            labelAll  = "UI_AA_packboxes_label_all",
+            optionTt  = "UI_AA_packboxes_option_tt",
+            started   = "UI_AA_pack_started",
+            working   = "UI_AA_pack_working",
+            done      = "UI_AA_pack_done",
+            nothing   = "UI_AA_pack_nothing",
+            notool    = "UI_AA_pack_blocked",
+            blocked   = "UI_AA_pack_blocked",
+            stop      = "UI_AA_pack_stop",
+        },
+    },
 }
 
 -- Ordered, so a right click resolves to exactly one family and the menu
 -- is built the same way every time.
 local FAMILY_ORDER = { "food", "carton", "box" }
+local PACKING_ORDER = { "packAmmo", "packBoxes" }
 
-for _, name in ipairs(FAMILY_ORDER) do
+for _, name in ipairs({ "food", "carton", "box", "packAmmo", "packBoxes" }) do
     local family = FAMILIES[name]
     family.wanted = {}
     for _, recipe in ipairs(family.recipes) do family.wanted[recipe] = true end
@@ -319,8 +382,12 @@ end
 --- Only ever used to narrow "everything within reach" before the
 --- crafting engine is asked. The engine still has the final say.
 local function matchesFamily(item, family)
-    local ok, named = pcall(family.named, item)
-    if ok and type(named) == "string" and family.wanted[named] then return true end
+    if family.batchSizes and family.batchSizes[item:getFullType()] then return true end
+
+    if family.named then
+        local ok, named = pcall(family.named, item)
+        if ok and type(named) == "string" and family.wanted[named] then return true end
+    end
 
     if family.tag then
         local okTag, tagged = pcall(function() return item:hasTag(family.tag) end)
@@ -336,6 +403,17 @@ function Open.familyOf(item)
     if not item then return nil end
 
     for _, name in ipairs(FAMILY_ORDER) do
+        local family = FAMILIES[name]
+        if matchesFamily(item, family) then return family end
+    end
+
+    return nil
+end
+
+function Open.packingFamilyOf(item)
+    if not item then return nil end
+
+    for _, name in ipairs(PACKING_ORDER) do
         local family = FAMILIES[name]
         if matchesFamily(item, family) then return family end
     end
@@ -484,6 +562,32 @@ local function countDoableNow(player, fullType, family)
     if #items == 0 then return 0, 0 end
 
     local containers = containersOf(player)
+
+    if family.batchSizes then
+        local groups = {}
+        for _, item in ipairs(items) do
+            local itemType = item:getFullType()
+            groups[itemType] = groups[itemType] or {}
+            table.insert(groups[itemType], item)
+        end
+
+        local doable = 0
+        for itemType, grouped in pairs(groups) do
+            local required = family.batchSizes[itemType]
+            if required and #grouped >= required then
+                local recipe = recipeFor(player, grouped[1], containers, family)
+                if recipe then
+                    local logic = buildLogic(player, grouped[1], recipe)
+                    if logic:canPerformCurrentRecipe() then
+                        local possible = logic:getPossibleCraftCount(true) or 0
+                        doable = doable + math.min(math.floor(#grouped / required), possible)
+                    end
+                end
+            end
+        end
+        return doable, #items
+    end
+
     local doable = 0
     for _, item in ipairs(items) do
         if recipeFor(player, item, containers, family) then doable = doable + 1 end
@@ -564,6 +668,22 @@ local function queueCrafting(task)
 
     task.before = snapshotInventory(player)
     task.awaitingResults = true
+
+    if task.family.batchSizes then
+        local item = task.items[1]
+        local container = item and item:getContainer()
+        local recipe = container and recipeFor(player, item, containers, task.family) or nil
+
+        if recipe then
+            ISInventoryPaneContextMenu.OnNewCraft(item, recipe, playerNum, false, nil)
+            task.pendingItems = { item }
+            return 1, 0
+        end
+
+        if item and not container then unsettled = 1 end
+        task.pendingItems = {}
+        return 0, unsettled
+    end
 
     for _, item in ipairs(task.items) do
         -- Re-checked per item: an item may have been eaten, dropped or
@@ -702,9 +822,74 @@ end
 -- Safety net on the round loop. Each round does at least one tin.
 local MAX_ROUNDS = 40
 local MAX_ROUNDS_CLIENT = 300
+local MAX_PACKING_ROUNDS = 300
 
-local function roundBudget()
+local function roundBudget(task)
+    if task and task.roundLimit then return task.roundLimit end
     return isClient() and MAX_ROUNDS_CLIENT or MAX_ROUNDS
+end
+
+local function packingRound(task, items, containers)
+    local groups = {}
+    local order = {}
+
+    for _, item in ipairs(items) do
+        local itemType = item:getFullType()
+        if not groups[itemType] then
+            groups[itemType] = {}
+            order[#order + 1] = itemType
+        end
+        table.insert(groups[itemType], item)
+    end
+
+    local configMax = AA.opt("openMax") or 0
+    if configMax > 0 and task.succeeded >= configMax then
+        task.failReason = "nothing"
+        return false
+    end
+
+    for _, itemType in ipairs(order) do
+        local grouped = groups[itemType]
+        local required = task.family.batchSizes[itemType]
+        if required and #grouped >= required then
+            local first = grouped[1]
+            local recipe = recipeFor(task.player, first, containers, task.family)
+            if recipe then
+                local logic = buildLogic(task.player, first, recipe)
+                local possible = logic:getPossibleCraftCount(true) or 0
+                task.lastOpenable = math.floor(#grouped / required)
+                task.lastPossible = possible
+                task.lastDoable = math.min(task.lastOpenable, possible)
+
+                if possible > 0 and logic:canPerformCurrentRecipe() then
+                    local batch = {}
+                    for i = 1, required do batch[i] = grouped[i] end
+
+                    task.failReason = nil
+                    task.items = batch
+                    task.supplies = {}
+                    task.phase = "gathering"
+
+                    if queueGathering(task) == 0 then
+                        task.phase = "crafting"
+                        local queued = queueCrafting(task)
+                        task.queued = task.queued + queued
+                        if queued == 0 then
+                            task.failReason = "blocked"
+                        else
+                            task.emptyCrafts = 0
+                        end
+                        return queued > 0
+                    end
+
+                    return true
+                end
+            end
+        end
+    end
+
+    task.failReason = "blocked"
+    return false
 end
 
 --- Works out what can be opened right now and queues the fetching for
@@ -721,6 +906,10 @@ local function planRound(task)
     end
 
     local containers = containersOf(player)
+
+    if task.family.batchSizes then
+        return packingRound(task, items, containers)
+    end
 
     -- Only the ones the game will actually give a recipe for, and the
     -- logic is built from the first of those rather than from the first
@@ -911,7 +1100,7 @@ local function think(task)
             -- whole pile untouchable. Bounded, so a pile that genuinely
             -- cannot be worked still ends rather than spinning.
             task.emptyCrafts = (task.emptyCrafts or 0) + 1
-            if task.emptyCrafts < MAX_EMPTY_CRAFTS and task.rounds < roundBudget() then
+            if task.emptyCrafts < MAX_EMPTY_CRAFTS and task.rounds < roundBudget(task) then
                 print("[AutoAll] open re-planning after an empty craft round ("
                         .. tostring(task.emptyCrafts) .. "/"
                         .. tostring(MAX_EMPTY_CRAFTS) .. ")")
@@ -927,7 +1116,18 @@ local function think(task)
         return
     end
 
-    if task.rounds < roundBudget() then
+    if task.phase == "returning" then
+        task.phase = "results"
+        returnResults(task)
+        return
+    end
+
+    if task.phase == "results" then
+        AA.stop(player, getText(task.family.text.done, task.succeeded), false)
+        return
+    end
+
+    if task.rounds < roundBudget(task) then
         task.rounds = task.rounds + 1
         if beginRound(task) then return end
     end
@@ -936,19 +1136,8 @@ local function think(task)
     -- of those is its own pass through think() because AA.stop clears
     -- the action queue: queueing a transfer and stopping in the same
     -- tick wipes the transfer.
-    if task.phase ~= "returning" then
-        task.phase = "returning"
-        returnSupplies(task)
-        return
-    end
-
-    if task.phase ~= "results" then
-        task.phase = "results"
-        returnResults(task)
-        return
-    end
-
-    AA.stop(player, getText(task.family.text.done, task.succeeded), false)
+    task.phase = "returning"
+    returnSupplies(task)
 end
 
 function Open.start(player, fullType, label, destination, familyKey)
@@ -975,6 +1164,19 @@ function Open.start(player, fullType, label, destination, familyKey)
     local fallback = items[1] and items[1]:getContainer() or nil
     if fallback and Open.onCorpse(items[1]) then fallback = nil end
 
+    local startCount = #items
+    if family.batchSizes then
+        local grouped = {}
+        startCount = 0
+        for _, item in ipairs(items) do
+            local itemType = item:getFullType()
+            grouped[itemType] = (grouped[itemType] or 0) + 1
+        end
+        for itemType, count in pairs(grouped) do
+            startCount = startCount + math.floor(count / family.batchSizes[itemType])
+        end
+    end
+
     local task = {
         kind         = "open",
         player       = player,
@@ -995,6 +1197,8 @@ function Open.start(player, fullType, label, destination, familyKey)
         pendingItems = {},
         noProgress   = 0,
         rounds       = 0,
+        roundLimit   = family.batchSizes and math.max(MAX_PACKING_ROUNDS,
+            startCount + MAX_NO_PROGRESS + MAX_EMPTY_CRAFTS) or nil,
         emptyCrafts  = 0,
         unsettled    = 0,
         failReason   = nil,
@@ -1005,7 +1209,7 @@ function Open.start(player, fullType, label, destination, familyKey)
         phase        = "gathering",
         think        = think,
         allowMove    = true,
-        startText    = getText(family.text.started, #items, label),
+        startText    = getText(family.text.started, startCount, label),
     }
 
     AA.startTask(task)
@@ -1062,7 +1266,8 @@ local function addOpenMenu(playerNum, context, items)
     -- container. Nothing below this line runs on a right click
     -- anywhere else, which is what keeps the cost off every menu.
     local family = Open.familyOf(item)
-    if not family then return end
+    local packingFamily = Open.packingFamilyOf(item)
+    if not family and not packingFamily then return end
 
     if AA.isRunning(player, "open") then
         -- Named after the job that is running, not after the thing that
@@ -1088,15 +1293,23 @@ local function addOpenMenu(playerNum, context, items)
     end
 
     withCache(function()
-        local fullType = item:getFullType()
-        addEntry(context, player, family,
-            getText(family.text.option, item:getDisplayName()),
-            fullType, Open.onStartOne,
-            { fullType = fullType, label = item:getDisplayName(),
-              destination = destination, family = family.key })
+        if family then
+            local fullType = item:getFullType()
+            addEntry(context, player, family,
+                getText(family.text.option, item:getDisplayName()),
+                fullType, Open.onStartOne,
+                { fullType = fullType, label = item:getDisplayName(),
+                  destination = destination, family = family.key })
 
-        addEntry(context, player, family, getText(family.text.optionAll),
-            nil, Open.onStartAll, { family = family.key })
+            addEntry(context, player, family, getText(family.text.optionAll),
+                nil, Open.onStartAll, { family = family.key })
+        end
+
+        if packingFamily then
+            addEntry(context, player, packingFamily,
+                getText(packingFamily.text.optionAll), nil, Open.onStartAll,
+                { family = packingFamily.key })
+        end
     end)
 end
 
