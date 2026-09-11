@@ -617,23 +617,6 @@ local function remainingHoles(garments)
     return total
 end
 
--- AA checks an active task four times a second. Worn clothing fields arrive
--- through a separate multiplayer sync path, so allow five seconds for a
--- completed repair to appear before reporting that its hole remains.
-local REPAIR_SETTLE_TICKS = 20
-
-local function hasScheduledHole(task)
-    for _, clothing in ipairs(task.garments) do
-        local scheduled = task.scheduled[clothing]
-        if scheduled then
-            for _, part in ipairs(holedParts(clothing)) do
-                if scheduled[part] then return true end
-            end
-        end
-    end
-    return false
-end
-
 --- Phase one: bring the holed garments in from wherever they are sitting.
 local function queueFetching(task)
     local player = task.player
@@ -676,38 +659,25 @@ local function queueRepairs(task)
     for _, clothing in ipairs(task.garments) do
         if AA.holds(player, clothing) then
             local parts = holedParts(clothing)
-            local scheduled = task.scheduled[clothing]
-            if not scheduled then
-                scheduled = {}
-                task.scheduled[clothing] = scheduled
-            end
             -- Asked once per garment rather than once per hole: the answer
             -- is the same for every hole in it, and each lookup walks the
             -- whole inventory.
             local chosen = #parts > 0 and Tailor.findFabricFor(player, clothing) or nil
 
             for _, part in ipairs(parts) do
-                if not scheduled[part] then
-                    -- Worn clothing is synchronized separately in multiplayer.
-                    -- Its visual can report the old hole after the first repair
-                    -- has drained from the queue. Scheduling that part again is
-                    -- destructive: vanilla still accepts the action once the
-                    -- hole disappears, then adds padding in its place.
-                    if not chosen then
-                        -- Nothing the fabric option allows is in reach. Left
-                        -- open and named at the end rather than counted as a
-                        -- failure.
-                        unmatched = unmatched + 1
-                    else
-                        -- findFabricFor decides the type. Which piece of it
-                        -- goes on this hole is takeFabric's job, so no two
-                        -- repairs in the round share an instance and get dropped.
-                        local piece = takeFabric(task, chosen:getType(), 1)[1]
-                        if piece then
-                            ISInventoryPaneContextMenu.repairClothing(player, clothing, part, piece, thread, needle)
-                            scheduled[part] = true
-                            queued = queued + 1
-                        end
+                if not chosen then
+                    -- Nothing the fabric option allows is in reach. Left
+                    -- open and named at the end rather than counted as a
+                    -- failure.
+                    unmatched = unmatched + 1
+                else
+                    -- findFabricFor decides the type. Which piece of it
+                    -- goes on this hole is takeFabric's job, so no two
+                    -- repairs in the round share an instance and get dropped.
+                    local piece = takeFabric(task, chosen:getType(), 1)[1]
+                    if piece then
+                        ISInventoryPaneContextMenu.repairClothing(player, clothing, part, piece, thread, needle)
+                        queued = queued + 1
                     end
                 end
             end
@@ -758,25 +728,11 @@ local function repairThink(task)
     end
 
     if task.phase == "sewing" then
-        local left = remainingHoles(task.garments)
-
         -- Another pass: a garment fetched late, or a hole whose fabric was
         -- not in the inventory the first time round, can still be done now.
-        if task.rounds < 20 and left > 0 then
+        if task.rounds < 20 and remainingHoles(task.garments) > 0 then
             task.rounds = task.rounds + 1
-            if queueRepairs(task) > 0 then
-                task.settleTicks = 0
-                return
-            end
-        end
-
-        -- Never requeue a part already handed to vanilla. If its worn-item
-        -- visual still shows a hole, wait for multiplayer clothing sync. A
-        -- rejected action remains visible and reaches the partial result once
-        -- this bounded wait expires.
-        if left > 0 and hasScheduledHole(task) then
-            task.settleTicks = task.settleTicks + 1
-            if task.settleTicks < REPAIR_SETTLE_TICKS then return end
+            if queueRepairs(task) > 0 then return end
         end
 
         task.phase = "returning"
@@ -828,13 +784,7 @@ function Tailor.startRepair(player, single)
         garments  = garments,
         holes     = holes,
         cameFrom  = {},
-        -- A vanilla repair action may be accepted after its hole has already
-        -- disappeared, in which case it adds padding. Remember every part
-        -- handed to vanilla so a delayed worn-clothing visual cannot queue it
-        -- twice during this job.
-        scheduled = {},
         rounds    = 0,
-        settleTicks = 0,
         -- Same stall guard as the other batch jobs: an action that never
         -- ends would otherwise freeze the whole repair in silence.
         stallTimeout = 30000,
