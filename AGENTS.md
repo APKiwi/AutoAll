@@ -1,4 +1,10 @@
-# Project instructions
+# Auto All contributor instructions
+
+Read [README.md](README.md) for the source layout, deployment boundary, and regression commands.
+`CLAUDE.md` imports this file so every harness receives the same Workshop rules.
+
+Keep root instructions within 16 KiB combined. Check edits with
+`sh scripts/check-agent-instructions.sh --tree` and put detailed reference material in linked docs.
 
 ## Steam Workshop change notes
 
@@ -13,4 +19,3 @@ When drafting change notes for this mod:
 - Keep the Brazilian Portuguese text ASCII-only to match the existing Workshop entries.
 - Do not add an introduction, summary, testing details, implementation details, or filler unless the user asks.
 - Never commit the notes. They go straight to the Workshop change log, which is the only copy. `PATCHNOTES-*.md` is gitignored.
-
