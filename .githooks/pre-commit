@@ -1,0 +1,4 @@
+#!/bin/sh
+# pre-commit: keep superpowers scratch untracked and unreferenced (scripts/check-scratch.sh).
+# Wired with: git config core.hooksPath .githooks
+exec sh scripts/check-scratch.sh

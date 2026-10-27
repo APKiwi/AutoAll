@@ -3,3 +3,7 @@
 
 # Release notes live on the Workshop change log, never in the repo.
 PATCHNOTES-*.md
+
+# Agent scratch stays local (docs/programs/README.md)
+.superpowers/
+docs/superpowers/
